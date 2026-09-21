@@ -1,0 +1,32 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: device_lover
+      POSTGRES_USER: device_lover
+      # Dev-only password; replace it for any real deployment.
+      POSTGRES_PASSWORD: device_lover
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U device_lover -d device_lover"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      HOST: 0.0.0.0
+      PORT: "3000"
+      DATABASE_URL: postgres://device_lover:device_lover@db:5432/device_lover
+      # Dev-only secret; override it for any real deployment.
+      JWT_SECRET: dev-only-change-me-in-production
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:

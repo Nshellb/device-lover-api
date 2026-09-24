@@ -1,5 +1,6 @@
 pub mod app;
 pub mod auth;
+pub mod catalog;
 pub mod config;
 pub mod dto;
 pub mod error;

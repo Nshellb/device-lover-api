@@ -22,10 +22,10 @@ COPY --from=builder --chown=appuser:appuser /app/target/release/device-lover-api
 COPY --from=builder --chown=appuser:appuser /app/migrations ./migrations
 
 ENV HOST=0.0.0.0
-ENV PORT=3000
+ENV PORT=4040
 
 USER appuser
 
-EXPOSE 3000
+EXPOSE 4040
 
 CMD ["./device-lover-api"]

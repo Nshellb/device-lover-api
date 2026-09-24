@@ -46,4 +46,28 @@ async fn openapi_spec_is_served() {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert!(json.get("openapi").is_some());
     assert!(json["paths"].as_object().unwrap().contains_key("/health"));
+    for path in [
+        "/api/v1/catalog/schema",
+        "/api/v1/devices",
+        "/api/v1/devices/{identifier}",
+        "/api/v1/comparisons",
+        "/api/v1/home",
+        "/api/v1/admin/cameras",
+        "/api/v1/cameras",
+        "/api/v1/cameras/comparisons",
+        "/api/v1/route-misses",
+        "/api/v1/admin/route-misses",
+        "/api/v1/admin/device-brands",
+        "/api/v1/device-selections",
+        "/api/v1/popular-devices",
+    ] {
+        assert!(json["paths"].as_object().unwrap().contains_key(path));
+    }
+    assert!(json["paths"]["/api/v1/admin/cameras"]["get"].is_object());
+    for method in ["post", "put", "patch", "delete"] {
+        assert!(json["paths"]["/api/v1/admin/cameras"].get(method).is_none());
+    }
+    assert!(
+        json["components"]["schemas"]["CameraResponse"]["properties"]["releaseMonth"].is_object()
+    );
 }

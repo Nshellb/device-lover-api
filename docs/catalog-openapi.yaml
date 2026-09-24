@@ -1,0 +1,1705 @@
+# 설계 전용: 현재 서버의 구현된 OpenAPI 문서에 자동 반영되지 않습니다.
+openapi: 3.1.0
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+info:
+  title: Device Lover 공개 카탈로그 API 설계
+  version: 0.1.0-draft
+  description: >-
+    설계 검토용 계약이며 라우트 구현이나 제품 사양 검증을 뜻하지 않는다. 기존 프론트 비교 테이블과 검색 UI를 기준으로 한다. Query는 snake_case, JSON 속성은
+    camelCase를 사용한다. 공개 GET만 다루며 관리자 쓰기 API는 범위 밖이다. 제품 관련 식별자 예시는 합성 입력이며 실제 제품 사양을 보증하지 않는다. 공통 공개 조건은
+    publication_status=published + verified_at IS NOT NULL + marketCode=KR + releaseDate <= Asia/Seoul 오늘이다.
+    날짜 조건은 한 요청에서 일관된 시각을 사용한다. raw의 선택 필드 생략은 미확인 세부값을 뜻하고, 사양 전체의 미확인/미공개/해당 없음은 SpecValue.status로 구분한다. 모든
+    GET에서 미지원 query key와 scalar query의 중복 입력은 400이다. identifiers만 명세된 배열이므로 반복을 허용한다. query가 없는 home/schema에
+    query를 전달해도 400이다.
+x-design-status: draft-not-implemented
+servers:
+  - url: /
+    description: 현재 API 서버 origin
+security: []
+tags:
+  - name: Catalog
+    description: 인증이 필요 없는 카탈로그 읽기 계약
+paths:
+  /api/v1/catalog/schema:
+    get:
+      operationId: getCatalogSchema
+      tags:
+        - Catalog
+      summary: 비교 테이블의 브랜드·섹션·행 정의
+      description: >-
+        프론트 specificationSections의 표시 구조를 전달한다. 기기 데이터와 별도로 캐시할 수 있으나 schemaVersion 변경을 확인해야 한다. 현재 스마트폰/KR
+        카탈로그만 제공한다.
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogSchemaResponse'
+              example:
+                schemaVersion: 1
+                category: smartphone
+                maxComparisonDevices: 3
+                brands:
+                  - slug: samsung
+                    name: SAMSUNG
+                  - slug: apple
+                    name: APPLE
+                sections:
+                  - key: basic
+                    title: 기본 정보
+                    description: 핵심 하드웨어와 기본 사양
+                    rows:
+                      - key: processor
+                        label: 프로세서 (AP)
+                      - key: memory
+                        label: 메모리
+                      - key: displaySize
+                        label: 디스플레이 크기
+                      - key: dimensions
+                        label: 크기
+                      - key: weight
+                        label: 무게
+                      - key: wiredConnection
+                        label: 단자
+                      - key: biometrics
+                        label: 생체인식
+                      - key: waterResistance
+                        label: 방수방진
+                      - key: speakers
+                        label: 스피커
+                      - key: operatingSystem
+                        label: 운영체제
+                      - key: colors
+                        label: 색상
+                      - key: releaseDate
+                        label: 출시일
+                  - key: display
+                    title: 디스플레이
+                    description: 화면 크기와 표현 방식
+                    rows:
+                      - key: displayPanel
+                        label: 패널
+                      - key: displaySize
+                        label: 화면 크기
+                      - key: displayResolution
+                        label: 해상도
+                      - key: refreshRate
+                        label: 재생률
+                      - key: displayFeatures
+                        label: 주요 기능
+                  - key: performance
+                    title: 성능
+                    description: 칩, 메모리, 연결 단자
+                    rows:
+                      - key: processor
+                        label: 프로세서
+                      - key: memory
+                        label: 메모리
+                      - key: storage
+                        label: 저장 용량
+                      - key: wiredConnection
+                        label: 유선 연결
+                  - key: camera
+                    title: 카메라
+                    description: 후면 시스템, 줌, 동영상
+                    rows:
+                      - key: rearCameras
+                        label: 후면 카메라
+                      - key: telephoto
+                        label: 망원
+                      - key: digitalZoom
+                        label: 디지털 줌
+                      - key: frontCamera
+                        label: 전면 카메라
+                      - key: videoRecording
+                        label: 동영상 촬영
+                  - key: battery
+                    title: 배터리와 충전
+                    description: 제조사 시험 기준
+                    rows:
+                      - key: batteryCapacity
+                        label: 배터리 용량
+                      - key: videoPlayback
+                        label: 동영상 재생
+                      - key: fastCharging
+                        label: 급속 충전
+                      - key: wirelessCharging
+                        label: 무선 충전
+                  - key: connectivity
+                    title: 연결과 내구성
+                    description: 네트워크, 생체 인증, 방수
+                    rows:
+                      - key: wireless
+                        label: 무선 연결
+                      - key: biometrics
+                        label: 생체 인증
+                      - key: waterResistance
+                        label: 방수·방진
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '408':
+          $ref: '#/components/responses/RequestTimeout'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/DatabaseUnavailable'
+  /api/v1/devices:
+    get:
+      operationId: listDevices
+      tags:
+        - Catalog
+      summary: 공개 출시 기기 검색·목록
+      description: >-
+        published 상태이며 verified_at이 존재하고 한국 출시일이 Asia/Seoul 오늘 이하인 기기만 반환한다. q는 HTTP 한 번 decode 후 NFKC → en-US
+        lowercase → Unicode Letter/Number 및 쉼표(,)·플러스(+)만 보존한다. slug, name, aliases, modelNumbers를 같은 방식으로
+        비교한다. 정규화한 q가 비어 있으면 최신 목록이다. relevance는 기기별 최선의 exact → prefix → contains 순위, releaseDate DESC, name
+        ASC, slug ASC 순이다. release_date_desc는 releaseDate DESC, name ASC, slug ASC 순이다. 문자열 정렬은 DB의 C
+        collation으로 고정하며 기존 JS localeCompare와 동일한 순서를 보장하지 않는다. 검색 q가 있으면 sort와 무관하게 일치한 항목만 반환한다.
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: 검색어. 원래 decode된 입력의 최대 길이는 100자이며 빈 문자열 또는 정규화 후 빈 값은 최신 목록이다.
+          schema:
+            type: string
+            maxLength: 100
+            default: ''
+        - name: category
+          in: query
+          required: false
+          description: 카테고리. 현재 smartphone만 지원한다.
+          schema:
+            type: string
+            enum:
+              - smartphone
+            default: smartphone
+        - name: brand
+          in: query
+          required: false
+          description: 브랜드 slug. 형식이 유효한 미등록 브랜드는 200 빈 목록을 반환한다.
+          schema:
+            $ref: '#/components/schemas/BrandSlug'
+        - name: page
+          in: query
+          required: false
+          description: 1부터 시작하는 페이지.
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+            maximum: 10000
+        - name: page_size
+          in: query
+          required: false
+          description: 페이지당 항목 수.
+          schema:
+            type: integer
+            minimum: 1
+            default: 20
+            maximum: 100
+        - name: sort
+          in: query
+          required: false
+          description: 생략 시 정규화한 q가 있으면 relevance, 없으면 release_date_desc. q가 비어 있는데 relevance를 명시해도 최신순으로 응답한다.
+          schema:
+            type: string
+            enum:
+              - relevance
+              - release_date_desc
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceListResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '408':
+          $ref: '#/components/responses/RequestTimeout'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/DatabaseUnavailable'
+  /api/v1/devices/{identifier}:
+    get:
+      operationId: getDevice
+      tags:
+        - Catalog
+      summary: slug·별칭·모델 번호로 공개 출시 기기 상세 조회
+      description: >-
+        정규화한 identifier와 slug, name, aliases, modelNumbers의 정확한 일치로 단일 모델을 해소한다. 부분 일치 검색은 하지 않는다. 별칭 요청에도
+        canonical slug를 포함한 상세 DTO로 200 응답한다. 목록과 같은 공개/검증/KST 출시 조건을 사용한다.
+      parameters:
+        - name: identifier
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/Identifier'
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceDetail'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '408':
+          $ref: '#/components/responses/RequestTimeout'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/DatabaseUnavailable'
+  /api/v1/comparisons:
+    get:
+      operationId: getComparison
+      tags:
+        - Catalog
+      summary: 입력 순서를 유지하는 최대 3개 기기 비교
+      description: >-
+        identifiers query를 1~3회 반복한다. URL 형식 예: ?identifiers=sample-phone&identifiers=sample18%2C1 (설명용 합성
+        식별자). 쉼표로 분리하는 CSV 형식은 지원하지 않으며 iphone18,1 같은 쉼표 포함 식별자는 하나의 값이다. 각 값을 상세 조회와 같은 규칙으로 해소하고 입력 순서를
+        보존한다. 공개 조건을 충족하는 해소 결과 중 동일 모델이 중복되면 400이다. 하나라도 없거나 비공개/미검증/미래 출시이면 404로 전체 실패하며 부분 결과를 제공하지 않는다. 모든
+        값이 존재할 때 중복 여부를 검사하므로 미존재와 중복이 섞이면 404이다.
+      parameters:
+        - name: identifiers
+          in: query
+          required: true
+          description: 반복 query의 순서가 비교 열 순서이다. alias 해소 후 동일 device ID가 두 번 나타날 수 없다.
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/Identifier'
+            minItems: 1
+            maxItems: 3
+          style: form
+          explode: true
+          allowReserved: false
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComparisonResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '408':
+          $ref: '#/components/responses/RequestTimeout'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/DatabaseUnavailable'
+  /api/v1/home:
+    get:
+      operationId: getHomeComparison
+      tags:
+        - Catalog
+      summary: 홈 기본 최신 기기 비교
+      description: >-
+        요청 시작 시 Asia/Seoul 날짜를 한 번 고정해 asOf와 출시 조건에 공통 적용한다. published + verified_at + releaseDate <= asOf인 서로
+        다른 모델을 releaseDate DESC, slug ASC로 최대 2개 선택한다. 같은 브랜드 2개를 허용하며 출시일이 같은 기기의 선택도 결정적이다. 0~1개만 있어도 200으로
+        응답한다.
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HomeResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '408':
+          $ref: '#/components/responses/RequestTimeout'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/DatabaseUnavailable'
+components:
+  responses:
+    ValidationError:
+      description: >-
+        잘못된 query/identifier, 입력 개수, 해소 후 중복 기기 또는 지원하지 않는 enum 값. code=validation_error. 미지원 query key 또는 중복
+        scalar query도 포함한다.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            error:
+              code: validation_error
+              message: invalid catalog request
+    NotFound:
+      description: 기기가 없거나 공개 조건을 만족하지 않는다. 비공개·미검증·아카이브·미래 출시도 동일하게 code=not_found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            error:
+              code: not_found
+              message: resource not found
+    InternalError:
+      description: 예상하지 못한 내부 오류. code=internal_error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            error:
+              code: internal_error
+              message: internal server error
+    DatabaseUnavailable:
+      description: 데이터베이스 요청 실패. 현재 API의 code=database_unavailable을 유지한다.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            error:
+              code: database_unavailable
+              message: database unavailable
+    RequestTimeout:
+      description: >-
+        현재 tower-http TimeoutLayer의 408 응답. JSON ErrorEnvelope를 보장하지 않으며 빈 본문을 반환할 수 있다. 이 설계에서 JSON body를
+        추가하지 않는다.
+  schemas:
+    Slug:
+      type: string
+      minLength: 1
+      maxLength: 160
+      pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+      description: 정규 소문자 URL 식별자.
+    DeviceSlug:
+      allOf:
+        - $ref: '#/components/schemas/Slug'
+        - not:
+            pattern: '-vs(?:-|$)'
+          maxLength: 120
+      description: 최대 120자이며 -vs-를 포함하거나 -vs로 끝나지 않는 기기 slug. 비교 경로 연결 시 구분자 충돌을 방지한다.
+    Identifier:
+      type: string
+      minLength: 1
+      maxLength: 160
+      description: >-
+        slug, 이름, 별칭 또는 모델 번호. HTTP 계층에서 한 번만 URL decode하고 NFKC → trim → en-US lowercase → 연속 공백/underscore를
+        하이픈으로 정규화한다. 쉼표와 +는 보존한다. 정규화 후 빈 값은 400. literal +는 query에서 %2B로 인코딩한다. 원래 decode된 입력과 정규화 결과 모두 최대
+        160자이다. 저장되는 route key는 -vs-를 포함하거나 -vs로 끝날 수 없다. 비교 경로 연결 시 구분자 충돌을 방지한다.
+    SpecKey:
+      type: string
+      enum:
+        - operatingSystem
+        - colors
+        - dimensions
+        - weight
+        - storage
+        - stylus
+        - displayPanel
+        - displaySize
+        - displayResolution
+        - refreshRate
+        - displayFeatures
+        - processor
+        - memory
+        - wiredConnection
+        - speakers
+        - rearCameras
+        - telephoto
+        - digitalZoom
+        - frontCamera
+        - videoRecording
+        - batteryCapacity
+        - videoPlayback
+        - fastCharging
+        - wirelessCharging
+        - wireless
+        - biometrics
+        - waterResistance
+    SpecificationRowKey:
+      type: string
+      enum:
+        - operatingSystem
+        - colors
+        - dimensions
+        - weight
+        - storage
+        - stylus
+        - displayPanel
+        - displaySize
+        - displayResolution
+        - refreshRate
+        - displayFeatures
+        - processor
+        - memory
+        - wiredConnection
+        - speakers
+        - rearCameras
+        - telephoto
+        - digitalZoom
+        - frontCamera
+        - videoRecording
+        - batteryCapacity
+        - videoPlayback
+        - fastCharging
+        - wirelessCharging
+        - wireless
+        - biometrics
+        - waterResistance
+        - releaseDate
+      description: releaseDate 행은 DeviceSummary.releaseDate에서 읽는다. stylus는 사양에 존재하지만 v1의 현재 33개 표시 행에는 포함되지 않는다.
+    SpecValue:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - raw
+        - value
+        - detail
+        - muted
+        - sourceId
+      properties:
+        status:
+          type: string
+          enum:
+            - known
+            - unknown
+            - not_disclosed
+            - not_applicable
+          description: >-
+            known: 근거 확인, unknown: 조사/검증 필요, not_disclosed: 제조사 미공개, not_applicable: 해당 없음. 기능 미지원은 known의
+            supported:false로 구분한다.
+        raw:
+          description: 키별 기계 판독 값. known일 때만 null이 아니며, 나머지 상태에서는 반드시 null이다. 단위와 구조는 각 Spec 스키마에 따른다.
+        value:
+          type: string
+          minLength: 1
+          description: 비교 테이블의 한국어 표시 문자열. 숫자 파싱이나 정렬 입력으로 사용하지 않는다.
+        detail:
+          type:
+            - string
+            - 'null'
+          description: 보조 표시 및 제조사 시험 조건. 제공되지 않으면 null.
+          minLength: 1
+        muted:
+          type: boolean
+          description: status가 known이 아니거나 raw.supported가 false이면 true, 그 밖에는 false로 계산하는 UI 힌트. 의미는 status 또는 raw에서 읽는다.
+        sourceId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: 동일 기기 sources의 출처 ID. null이면 해당 기기의 isPrimary:true 출처를 사용한다. 명시적으로 참조한 출처의 checkedAt도 반드시 존재해야 한다.
+      oneOf:
+        - properties:
+            status:
+              const: known
+            raw:
+              not:
+                type: 'null'
+        - properties:
+            status:
+              enum:
+                - unknown
+                - not_disclosed
+                - not_applicable
+            raw:
+              type: 'null'
+      description: 모든 필드를 응답한다. 현재 프론트의 value/detail/muted 표시에 상태·형식화 전 원본 값·출처를 더한 공통 래퍼.
+    OperatingSystemRaw:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+        version:
+          type: string
+          minLength: 1
+        skin:
+          type: string
+          minLength: 1
+      description: 출시 시 운영체제. 현재 설치 가능한 최신 버전과 혼동하지 않는다.
+    OperatingSystemSpec:
+      allOf:
+        - $ref: '#/components/schemas/SpecValue'
+        - properties:
+            raw:
+              anyOf:
+                - $ref: '#/components/schemas/OperatingSystemRaw'
+                - type: 'null'
+    ColorsRaw:
+      type: array
+      items:
+        type: object
+        additionalProperties: false
+        required:
+          - name
+          - exclusive
+        properties:
+          name:
+            type: string
+            minLength: 1
+          exclusive:
+            type: boolean
+      minItems: 1
+      uniqueItems: true
+      description: 제조사 표기 색상과 전용 판매 색상 여부.
+    ColorsSpec:
+      allOf:
+        - $ref: '#/components/schemas/SpecValue'
+        - properties:
+            raw:
+              anyOf:
+                - $ref: '#/components/schemas/ColorsRaw'
+                - type: 'null'
+    DimensionsRaw:
+      type: object
+      additionalProperties: false
+      required:
+        - heightMm
+        - widthMm
+        - depthMm
+      properties:
+        heightMm:
+          type: number
+          exclusiveMinimum: 0
+        widthMm:
+          type: number
+          exclusiveMinimum: 0
+        depthMm:
+          type: number
+          exclusiveMinimum: 0
+      description: 높이·너비·두께, 모두 mm.
+    DimensionsSpec:
+      allOf:
+        - $ref: '#/components/schemas/SpecValue'
+        - properties:
+            raw:
+              anyOf:
+                - $ref: '#/components/schemas/DimensionsRaw'
+                - type: 'null'
+    WeightRaw:
+      type: number
+      exclusiveMinimum: 0
+      description: 질량, g.
+    WeightSpec:
+      allOf:
+        - $ref: '#/components/schemas/SpecValue'
+        - properties:
+            raw:
+              anyOf:
+                - $ref: '#/components/schemas/WeightRaw'
+                - type: 'null'
+    StorageRaw:
+      type: object
+      additionalProperties: false
+      required:
+        - optionsGb
+      properties:
+        optionsGb:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+          uniqueItems: true
+          minItems: 1
+      description: 모델 전체의 확인된 저장 용량 옵션(GB). 1TB 표기는 1024GB로 정규화한다. 실제 RAM/저장 용량 조합은 configurations에서만 확인한다.
+    StorageSpec:
+      allOf:
+        - $ref: '#/components/schemas/SpecValue'
+        - properties:
+            raw:
+              anyOf:
+                - $ref: '#/components/schemas/StorageRaw'
+                - type: 'null'
+    StylusRaw:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required:
+            - supported
+          properties:
+            supported:
+              type: boolean
+              const: false
+        - type: object
+          additionalProperties: false
+          required:
+            - supported
+          properties:
+            supported:
+              type: boolean
+              const: true
+            name:
+              type: string
+              minLength: 1
+            builtIn:
+              type: boolean
+      description: 미지원은 known + {supported:false}. 지원 여부는 알지만 세부 명칭/내장 여부를 모르면 선택 필드를 생략한다.
+    StylusSpec:
+      allOf:
+        - $ref: '#/components/schemas/SpecValue'
+        - properties:
+            raw:
+              anyOf:
+                - $ref: '#/components/schemas/StylusRaw'
+                - type: 'null'
+    DisplayPanelRaw:
+      type: string
+      minLength: 1
+      description: 제조사가 사용하는 패널 명칭.
+    DisplayPanelSpec:
+      allOf:
+        - $ref: '#/components/schemas/SpecValue'
+        - properties:
+            raw:
+              anyOf:
+                - $ref: '#/components/schemas/DisplayPanelRaw'
+                - type: 'null'
+    DisplaySizeRaw:
+      type: object
+      additionalProperties: false
+      required:
+        - diagonalMm
+      properties:
+        diagonalMm:
+          type: number
+          exclusiveMinimum: 0
+        marketedInches:
+          type: number
+          exclusiveMinimum: 0
+      description: 물리 대각선은 mm로 정규화하고 제조사의 마케팅 인치값은 확인된 경우 별도로 보존한다. 두 값을 역산해 동등하다고 간주하지 않는다.
+    DisplaySizeSpec:
+      allOf:
+        - $ref: '#/components/schemas/SpecValue'
+        - properties:
+            raw:
+              anyOf:
+                - $ref: '#/components/schemas/DisplaySizeRaw'
+                - type: 'null'
+    DisplayResolutionRaw:
+      type: object
+      additionalProperties: false
+      required:
+        - widthPx
+        - heightPx
+      properties:
+        widthPx:
+          type: integer
+          minimum: 1
+        heightPx:
+          type: integer
+          minimum: 1
+        ppi:
+          type: number
+          exclusiveMinimum: 0
+      description: 세로 방향 기준 가로/세로 픽셀 수. 제조사 문자열 나열 순서 대신 의미에 맞게 입력한다.
+    DisplayResolutionSpec:
+      allOf:
+        - $ref: '#/components/schemas/SpecValue'
+        - properties:
+            raw:
+              anyOf:
+                - $ref: '#/components/schemas/DisplayResolutionRaw'
+                - type: 'null'
+    RefreshRateRaw:
+      type: object
+      additionalProperties: false
+      required:
+        - maxHz
+      properties:
+        maxHz:
+          type: number
+          exclusiveMinimum: 0
+        minHz:
+          type: number
+          exclusiveMinimum: 0
+      description: Hz. 최소값이 확인된 경우만 minHz를 포함하며 minHz <= maxHz여야 한다.
+    RefreshRateSpec:
+      allOf:
+        - $ref: '#/components/schemas/SpecValue'
+        - properties:
+            raw:
+              anyOf:
+                - $ref: '#/components/schemas/RefreshRateRaw'
+                - type: 'null'
+    DisplayFeaturesRaw:
+      type: array
+      items:
+        type: string
+        minLength: 1
+      uniqueItems: true
+      minItems: 1
+    DisplayFeaturesSpec:
+      allOf:
+        - $ref: '#/components/schemas/SpecValue'
+        - properties:
+            raw:
+              anyOf:
+                - $ref: '#/components/schemas/DisplayFeaturesRaw'
+                - type: 'null'
+    ProcessorRaw:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+        vendor:
+          type: string
+          minLength: 1
+        cpuCores:
+          type: integer
+          minimum: 1
+        gpuCores:
+          type: integer
+          minimum: 1
+    ProcessorSpec:
+      allOf:
+        - $ref: '#/components/schemas/SpecValue'
+        - properties:
+            raw:
+              anyOf:
+                - $ref: '#/components/schemas/ProcessorRaw'
+                - type: 'null'
+    MemoryRaw:
+      type: object
+      additionalProperties: false
+      required:
+        - optionsGb
+      properties:
+        optionsGb:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+          uniqueItems: true
+          minItems: 1
+      description: 모델 전체의 확인된 RAM 옵션(GB). storage와의 데카르트 곱으로 실제 판매 조합을 생성하지 않는다.
+    MemorySpec:
+      allOf:
+        - $ref: '#/components/schemas/SpecValue'
+        - properties:
+            raw:
+              anyOf:
+                - $ref: '#/components/schemas/MemoryRaw'
+                - type: 'null'
+    WiredConnectionRaw:
+      type: object
+      additionalProperties: false
+      required:
+        - connector
+      properties:
+        connector:
+          type: string
+          minLength: 1
+        protocol:
+          type: string
+          minLength: 1
+        maxGbps:
+          type: number
+          exclusiveMinimum: 0
+      description: 최대 전송 속도는 Gbit/s. 단자 형태와 전송 규격은 별도로 저장한다.
+    WiredConnectionSpec:
+      allOf:
+        - $ref: '#/components/schemas/SpecValue'
+        - properties:
+            raw:
+              anyOf:
+                - $ref: '#/components/schemas/WiredConnectionRaw'
+                - type: 'null'
+    SpeakersRaw:
+      type: object
+      additionalProperties: false
+      required:
+        - layout
+      properties:
+        layout:
+          type: string
+          minLength: 1
+        count:
+          type: integer
+          minimum: 1
+    SpeakersSpec:
+      allOf:
+        - $ref: '#/components/schemas/SpecValue'
+        - properties:
+            raw:
+              anyOf:
+                - $ref: '#/components/schemas/SpeakersRaw'
+                - type: 'null'
+    RearCamerasRaw:
+      type: array
+      items:
+        type: object
+        additionalProperties: false
+        required:
+          - role
+          - megapixels
+        properties:
+          role:
+            type: string
+            minLength: 1
+          megapixels:
+            type: number
+            exclusiveMinimum: 0
+          aperture:
+            type: number
+            exclusiveMinimum: 0
+          opticalZoom:
+            type: number
+            exclusiveMinimum: 0
+      minItems: 1
+      description: 물리 후면 카메라 모듈 배열. megapixels는 MP, aperture는 F-number, opticalZoom은 배율. 센서 크롭을 별도 물리 카메라로 추가하지 않는다.
+    RearCamerasSpec:
+      allOf:
+        - $ref: '#/components/schemas/SpecValue'
+        - properties:
+            raw:
+              anyOf:
+                - $ref: '#/components/schemas/RearCamerasRaw'
+                - type: 'null'
+    TelephotoRaw:
+      type: object
+      additionalProperties: false
+      required:
+        - opticalZoomFactors
+        - opticalQualityZoomFactors
+      properties:
+        opticalZoomFactors:
+          type: array
+          items:
+            type: number
+            exclusiveMinimum: 0
+          uniqueItems: true
+        opticalQualityZoomFactors:
+          type: array
+          items:
+            type: number
+            exclusiveMinimum: 0
+          uniqueItems: true
+      description: 물리 광학 배율과 제조사 광학 퀄리티/크롭 배율을 분리한다. 검증된 미지원 항목은 빈 배열이며, 둘 다 미지원이면 두 배열이 비어 있을 수 있다.
+    TelephotoSpec:
+      allOf:
+        - $ref: '#/components/schemas/SpecValue'
+        - properties:
+            raw:
+              anyOf:
+                - $ref: '#/components/schemas/TelephotoRaw'
+                - type: 'null'
+    DigitalZoomRaw:
+      type: number
+      exclusiveMinimum: 0
+      description: 최대 디지털 줌 배율.
+    DigitalZoomSpec:
+      allOf:
+        - $ref: '#/components/schemas/SpecValue'
+        - properties:
+            raw:
+              anyOf:
+                - $ref: '#/components/schemas/DigitalZoomRaw'
+                - type: 'null'
+    FrontCameraRaw:
+      type: object
+      additionalProperties: false
+      required:
+        - megapixels
+      properties:
+        megapixels:
+          type: number
+          exclusiveMinimum: 0
+        aperture:
+          type: number
+          exclusiveMinimum: 0
+        features:
+          type: array
+          items:
+            type: string
+            minLength: 1
+          uniqueItems: true
+      description: megapixels는 MP, aperture는 F-number.
+    FrontCameraSpec:
+      allOf:
+        - $ref: '#/components/schemas/SpecValue'
+        - properties:
+            raw:
+              anyOf:
+                - $ref: '#/components/schemas/FrontCameraRaw'
+                - type: 'null'
+    VideoRecordingRaw:
+      type: object
+      additionalProperties: false
+      required:
+        - modes
+      properties:
+        modes:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - resolutionLabel
+              - maxFps
+            properties:
+              resolutionLabel:
+                type: string
+                minLength: 1
+              maxFps:
+                type: number
+                exclusiveMinimum: 0
+              hdrFormats:
+                type: array
+                items:
+                  type: string
+                  minLength: 1
+                uniqueItems: true
+          minItems: 1
+      description: 확인된 해상도별 최대 프레임 모드. 모든 해상도·fps·HDR을 자유롭게 조합할 수 있다고 추론하지 않는다.
+    VideoRecordingSpec:
+      allOf:
+        - $ref: '#/components/schemas/SpecValue'
+        - properties:
+            raw:
+              anyOf:
+                - $ref: '#/components/schemas/VideoRecordingRaw'
+                - type: 'null'
+    BatteryCapacityRaw:
+      type: object
+      additionalProperties: false
+      required:
+        - mah
+        - basis
+      properties:
+        mah:
+          type: integer
+          minimum: 1
+        basis:
+          type: string
+          enum:
+            - typical
+            - rated
+            - unspecified
+      description: mAh와 제조사 표기의 정격/일반 기준. 근거 문서가 기준을 구분하지 않은 경우 unspecified.
+    BatteryCapacitySpec:
+      allOf:
+        - $ref: '#/components/schemas/SpecValue'
+        - properties:
+            raw:
+              anyOf:
+                - $ref: '#/components/schemas/BatteryCapacityRaw'
+                - type: 'null'
+    VideoPlaybackRaw:
+      type: number
+      exclusiveMinimum: 0
+      description: 제조사 시험상 최대 동영상 재생 시간, h. 시험 조건은 detail과 출처에서 보존하며 브랜드 간 직접 우열을 계산하지 않는다.
+    VideoPlaybackSpec:
+      allOf:
+        - $ref: '#/components/schemas/SpecValue'
+        - properties:
+            raw:
+              anyOf:
+                - $ref: '#/components/schemas/VideoPlaybackRaw'
+                - type: 'null'
+    FastChargingRaw:
+      type: object
+      additionalProperties: false
+      required: []
+      properties:
+        maxW:
+          type: number
+          exclusiveMinimum: 0
+        targetPercent:
+          type: integer
+          minimum: 1
+          maximum: 100
+        durationMinutes:
+          type: number
+          exclusiveMinimum: 0
+        adapterMinW:
+          type: number
+          exclusiveMinimum: 0
+      anyOf:
+        - required:
+            - maxW
+        - required:
+            - targetPercent
+            - durationMinutes
+      dependentRequired:
+        targetPercent:
+          - durationMinutes
+        durationMinutes:
+          - targetPercent
+      description: >-
+        최대 기기 충전 전력(W) 또는 목표 잔량(%)·시간(분) 중 하나 이상을 제공한다. adapterMinW는 시험에 사용된 어댑터 요구 전력이며 기기의 maxW로 복사하지 않는다.
+        시험 조건은 detail에 보존한다.
+    FastChargingSpec:
+      allOf:
+        - $ref: '#/components/schemas/SpecValue'
+        - properties:
+            raw:
+              anyOf:
+                - $ref: '#/components/schemas/FastChargingRaw'
+                - type: 'null'
+    WirelessChargingRaw:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required:
+            - supported
+          properties:
+            supported:
+              type: boolean
+              const: false
+        - type: object
+          additionalProperties: false
+          required:
+            - supported
+          properties:
+            supported:
+              type: boolean
+              const: true
+            maxW:
+              type: number
+              exclusiveMinimum: 0
+            standards:
+              type: array
+              items:
+                type: string
+                minLength: 1
+              uniqueItems: true
+      description: 지원 여부와 선택적으로 확인한 최대 W·규격을 제공한다. 미지원은 known + {supported:false}.
+    WirelessChargingSpec:
+      allOf:
+        - $ref: '#/components/schemas/SpecValue'
+        - properties:
+            raw:
+              anyOf:
+                - $ref: '#/components/schemas/WirelessChargingRaw'
+                - type: 'null'
+    WirelessRaw:
+      type: object
+      additionalProperties: false
+      required: []
+      properties:
+        cellular:
+          type: array
+          items:
+            type: string
+            minLength: 1
+          uniqueItems: true
+          minItems: 1
+        wifi:
+          type: array
+          items:
+            type: string
+            minLength: 1
+          uniqueItems: true
+          minItems: 1
+        bluetooth:
+          type: string
+          minLength: 1
+      minProperties: 1
+    WirelessSpec:
+      allOf:
+        - $ref: '#/components/schemas/SpecValue'
+        - properties:
+            raw:
+              anyOf:
+                - $ref: '#/components/schemas/WirelessRaw'
+                - type: 'null'
+    BiometricsRaw:
+      type: array
+      items:
+        type: string
+        minLength: 1
+      uniqueItems: true
+      minItems: 1
+    BiometricsSpec:
+      allOf:
+        - $ref: '#/components/schemas/SpecValue'
+        - properties:
+            raw:
+              anyOf:
+                - $ref: '#/components/schemas/BiometricsRaw'
+                - type: 'null'
+    WaterResistanceRaw:
+      type: object
+      additionalProperties: false
+      required:
+        - rating
+      properties:
+        rating:
+          type: string
+          minLength: 1
+        maxDepthM:
+          type: number
+          exclusiveMinimum: 0
+        maxDurationMinutes:
+          type: number
+          exclusiveMinimum: 0
+      description: 등급과 확인된 제조사 시험 최대 수심(m)·지속 시간(분). 동일 등급이라도 서로 다른 시험 조건을 동등하게 취급하지 않는다.
+    WaterResistanceSpec:
+      allOf:
+        - $ref: '#/components/schemas/SpecValue'
+        - properties:
+            raw:
+              anyOf:
+                - $ref: '#/components/schemas/WaterResistanceRaw'
+                - type: 'null'
+    DeviceSpecs:
+      type: object
+      additionalProperties: false
+      required:
+        - operatingSystem
+        - colors
+        - dimensions
+        - weight
+        - storage
+        - stylus
+        - displayPanel
+        - displaySize
+        - displayResolution
+        - refreshRate
+        - displayFeatures
+        - processor
+        - memory
+        - wiredConnection
+        - speakers
+        - rearCameras
+        - telephoto
+        - digitalZoom
+        - frontCamera
+        - videoRecording
+        - batteryCapacity
+        - videoPlayback
+        - fastCharging
+        - wirelessCharging
+        - wireless
+        - biometrics
+        - waterResistance
+      properties:
+        operatingSystem:
+          $ref: '#/components/schemas/OperatingSystemSpec'
+        colors:
+          $ref: '#/components/schemas/ColorsSpec'
+        dimensions:
+          $ref: '#/components/schemas/DimensionsSpec'
+        weight:
+          $ref: '#/components/schemas/WeightSpec'
+        storage:
+          $ref: '#/components/schemas/StorageSpec'
+        stylus:
+          $ref: '#/components/schemas/StylusSpec'
+        displayPanel:
+          $ref: '#/components/schemas/DisplayPanelSpec'
+        displaySize:
+          $ref: '#/components/schemas/DisplaySizeSpec'
+        displayResolution:
+          $ref: '#/components/schemas/DisplayResolutionSpec'
+        refreshRate:
+          $ref: '#/components/schemas/RefreshRateSpec'
+        displayFeatures:
+          $ref: '#/components/schemas/DisplayFeaturesSpec'
+        processor:
+          $ref: '#/components/schemas/ProcessorSpec'
+        memory:
+          $ref: '#/components/schemas/MemorySpec'
+        wiredConnection:
+          $ref: '#/components/schemas/WiredConnectionSpec'
+        speakers:
+          $ref: '#/components/schemas/SpeakersSpec'
+        rearCameras:
+          $ref: '#/components/schemas/RearCamerasSpec'
+        telephoto:
+          $ref: '#/components/schemas/TelephotoSpec'
+        digitalZoom:
+          $ref: '#/components/schemas/DigitalZoomSpec'
+        frontCamera:
+          $ref: '#/components/schemas/FrontCameraSpec'
+        videoRecording:
+          $ref: '#/components/schemas/VideoRecordingSpec'
+        batteryCapacity:
+          $ref: '#/components/schemas/BatteryCapacitySpec'
+        videoPlayback:
+          $ref: '#/components/schemas/VideoPlaybackSpec'
+        fastCharging:
+          $ref: '#/components/schemas/FastChargingSpec'
+        wirelessCharging:
+          $ref: '#/components/schemas/WirelessChargingSpec'
+        wireless:
+          $ref: '#/components/schemas/WirelessSpec'
+        biometrics:
+          $ref: '#/components/schemas/BiometricsSpec'
+        waterResistance:
+          $ref: '#/components/schemas/WaterResistanceSpec'
+      description: >-
+        27개 키가 항상 존재한다. 미확인 데이터는 키를 생략하지 않고 status:unknown, raw:null로 응답한다. releaseDate는 기기 기본 정보이며 여기에 중복
+        저장하지 않는다.
+    DeviceConfiguration:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - label
+        - storageGb
+        - ramGb
+        - ramStatus
+      properties:
+        id:
+          type: string
+          format: uuid
+        label:
+          type: string
+          minLength: 1
+          maxLength: 160
+        storageGb:
+          type: integer
+          minimum: 1
+        ramGb:
+          type:
+            - integer
+            - 'null'
+          minimum: 1
+        ramStatus:
+          type: string
+          enum:
+            - known
+            - unknown
+            - not_disclosed
+      oneOf:
+        - properties:
+            ramStatus:
+              const: known
+            ramGb:
+              type: integer
+              minimum: 1
+        - properties:
+            ramStatus:
+              enum:
+                - unknown
+                - not_disclosed
+            ramGb:
+              type: 'null'
+      description: 해당 한국 모델에서 실제로 검증한 저장 용량/RAM 조합. RAM 미공개를 0GB로 표현하지 않는다.
+    DeviceSource:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - url
+        - title
+        - checkedAt
+        - isPrimary
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+          format: uri
+          pattern: ^https://
+        title:
+          type: string
+          minLength: 1
+          maxLength: 240
+        checkedAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        isPrimary:
+          type: boolean
+      allOf:
+        - if:
+            properties:
+              isPrimary:
+                const: true
+          then:
+            properties:
+              checkedAt:
+                type: string
+                format: date-time
+      description: >-
+        기기별 근거 자료. sources에는 isPrimary:true가 정확히 하나 있고, 공개 기기의 primary.checkedAt은 반드시 존재한다. 기타 출처의 checkedAt은
+        null일 수 있다.
+    DeviceSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - slug
+        - category
+        - brand
+        - brandSlug
+        - name
+        - releaseDate
+        - marketCode
+        - aliases
+        - modelNumbers
+        - imageUrl
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          $ref: '#/components/schemas/DeviceSlug'
+        category:
+          type: string
+          const: smartphone
+        brand:
+          type: string
+          minLength: 1
+          description: 브랜드 표시 이름. 현재 SAMSUNG 또는 APPLE이며 브랜드 추가 시 늘어날 수 있다.
+          maxLength: 120
+        brandSlug:
+          $ref: '#/components/schemas/BrandSlug'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        releaseDate:
+          type: string
+          format: date
+          description: 한국 출시일. 오늘은 Asia/Seoul 기준으로 계산한다.
+        marketCode:
+          type: string
+          const: KR
+        aliases:
+          type: array
+          items:
+            $ref: '#/components/schemas/Identifier'
+          uniqueItems: true
+        modelNumbers:
+          type: array
+          items:
+            $ref: '#/components/schemas/Identifier'
+          uniqueItems: true
+        imageUrl:
+          type:
+            - string
+            - 'null'
+          format: uri
+          description: 대표 이미지가 없으면 null이며 프론트가 대체 이미지를 표시한다.
+          pattern: ^https://
+      description: 검색/선택 UI용 모델 요약. 모델 단위이며 RAM/저장 용량 SKU가 아니다.
+    DeviceDetail:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - slug
+        - category
+        - brand
+        - brandSlug
+        - name
+        - releaseDate
+        - marketCode
+        - aliases
+        - modelNumbers
+        - imageUrl
+        - variant
+        - configurations
+        - sourceUrl
+        - sources
+        - specs
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          $ref: '#/components/schemas/DeviceSlug'
+        category:
+          type: string
+          const: smartphone
+        brand:
+          type: string
+          minLength: 1
+          description: 브랜드 표시 이름. 현재 SAMSUNG 또는 APPLE이며 브랜드 추가 시 늘어날 수 있다.
+          maxLength: 120
+        brandSlug:
+          $ref: '#/components/schemas/BrandSlug'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        releaseDate:
+          type: string
+          format: date
+          description: 한국 출시일. 오늘은 Asia/Seoul 기준으로 계산한다.
+        marketCode:
+          type: string
+          const: KR
+        aliases:
+          type: array
+          items:
+            $ref: '#/components/schemas/Identifier'
+          uniqueItems: true
+        modelNumbers:
+          type: array
+          items:
+            $ref: '#/components/schemas/Identifier'
+          uniqueItems: true
+        imageUrl:
+          type:
+            - string
+            - 'null'
+          format: uri
+          description: 대표 이미지가 없으면 null이며 프론트가 대체 이미지를 표시한다.
+          pattern: ^https://
+        variant:
+          type:
+            - string
+            - 'null'
+          description: 기존 비교 헤더용 표시 라벨. 특정 선택 SKU, 기본 추천 조합, 전체 옵션 또는 재고를 뜻하지 않는다.
+          minLength: 1
+        configurations:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceConfiguration'
+          description: 검증된 실제 조합만 포함한다. 아직 확인한 조합이 없으면 빈 배열이다.
+        sourceUrl:
+          type: string
+          format: uri
+          description: sources의 isPrimary:true 항목 url과 동일한 편의 필드.
+          pattern: ^https://
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceSource'
+          minItems: 1
+        specs:
+          $ref: '#/components/schemas/DeviceSpecs'
+        updatedAt:
+          type: string
+          format: date-time
+      description: 공개 검증을 통과한 한국 출시 모델. sourceId 참조, primary 출처의 개수와 sourceUrl 일치는 응답 생성 전에 검증한다.
+    Pagination:
+      type: object
+      additionalProperties: false
+      required:
+        - page
+        - pageSize
+        - total
+        - totalPages
+      properties:
+        page:
+          type: integer
+          minimum: 1
+          maximum: 10000
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 100
+        total:
+          type: integer
+          minimum: 0
+        totalPages:
+          type: integer
+          minimum: 0
+      description: >-
+        totalPages = ceil(total/pageSize). total=0이면 totalPages=0. 요청한 page가 마지막 페이지를 넘으면 items=[]이며 page는
+        요청값을 유지한다.
+    DeviceListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - pagination
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceSummary'
+          maxItems: 100
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    ComparisonPath:
+      type: string
+      pattern: ^/[a-z0-9]+(?:-[a-z0-9]+)*$
+      description: 응답 devices 순서대로 slug를 -vs-로 연결한 프론트 경로. 한 기기는 /slug, 두 기기는 /slug-vs-slug, 세 기기는 /slug-vs-slug-vs-slug.
+    ComparisonResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - devices
+        - canonicalPath
+        - schemaVersion
+      properties:
+        devices:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceDetail'
+          minItems: 1
+          maxItems: 3
+        canonicalPath:
+          $ref: '#/components/schemas/ComparisonPath'
+        schemaVersion:
+          type: integer
+          const: 1
+      description: 기기 순서는 identifiers 입력 순서이며 중복 모델은 없다. 일부 식별자가 실패하면 부분 응답 없이 전체 요청이 실패한다.
+    HomeResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - devices
+        - canonicalPath
+        - schemaVersion
+        - asOf
+      properties:
+        devices:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceDetail'
+          maxItems: 2
+        canonicalPath:
+          anyOf:
+            - $ref: '#/components/schemas/ComparisonPath'
+            - type: 'null'
+        schemaVersion:
+          type: integer
+          const: 1
+        asOf:
+          type: string
+          format: date
+          description: 요청에서 공개/출시 조건 평가에 사용한 Asia/Seoul 날짜.
+      allOf:
+        - if:
+            properties:
+              devices:
+                maxItems: 0
+          then:
+            properties:
+              canonicalPath:
+                type: 'null'
+          else:
+            properties:
+              canonicalPath:
+                $ref: '#/components/schemas/ComparisonPath'
+      description: 출시일 내림차순, slug 오름차순으로 고른 서로 다른 모델 최대 2개. 부족한 수만큼 0개 또는 1개를 응답하며, 0개일 때만 canonicalPath=null이다.
+    CatalogBrand:
+      type: object
+      additionalProperties: false
+      required:
+        - slug
+        - name
+      properties:
+        slug:
+          $ref: '#/components/schemas/BrandSlug'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+    SpecificationRow:
+      type: object
+      additionalProperties: false
+      required:
+        - key
+        - label
+      properties:
+        key:
+          $ref: '#/components/schemas/SpecificationRowKey'
+        label:
+          type: string
+          minLength: 1
+    SpecificationSection:
+      type: object
+      additionalProperties: false
+      required:
+        - key
+        - title
+        - description
+        - rows
+      properties:
+        key:
+          type: string
+          enum:
+            - basic
+            - display
+            - performance
+            - camera
+            - battery
+            - connectivity
+        title:
+          type: string
+          minLength: 1
+        description:
+          type: string
+          minLength: 1
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/SpecificationRow'
+          minItems: 1
+    CatalogSchemaResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - schemaVersion
+        - category
+        - maxComparisonDevices
+        - brands
+        - sections
+      properties:
+        schemaVersion:
+          type: integer
+          const: 1
+        category:
+          type: string
+          const: smartphone
+        maxComparisonDevices:
+          type: integer
+          const: 3
+        brands:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogBrand'
+          uniqueItems: true
+        sections:
+          type: array
+          items:
+            $ref: '#/components/schemas/SpecificationSection'
+          minItems: 6
+          maxItems: 6
+      description: >-
+        schemaVersion=1은 basic/display/performance/camera/battery/connectivity 순서의 6개 섹션, 총 33개 행을 유지한다. 섹션 간
+        동일 spec key 재사용은 의도적이며 표시 순서를 배열로 전달한다. 브랜드 목록은 동일한 공개/검증/출시 조건을 만족하는 카탈로그 모델이 하나 이상 있는 브랜드만 포함한다.
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - validation_error
+                - not_found
+                - internal_error
+                - database_unavailable
+            message:
+              type: string
+              minLength: 1
+      description: 현재 API의 오류 포맷을 재사용한다. 내부 SQL, 스택, 출처 검증 세부내역은 공개하지 않는다.
+    BrandSlug:
+      allOf:
+        - $ref: '#/components/schemas/Slug'
+        - maxLength: 80
+      description: 최대 80자의 브랜드 slug.

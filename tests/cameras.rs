@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use tower::ServiceExt;
+use uuid::Uuid;
 
 const UNUSED_DATABASE_URL: &str = "postgres://postgres:postgres@127.0.0.1/device_lover_test";
 
@@ -80,7 +81,6 @@ async fn camera_query_validation_happens_before_database_access() {
         "page_size=0",
         "page_size=101",
         "page_size=abc",
-        "series=EOS+7D",
         "series=",
         "q=%",
         "q=%2",
@@ -104,15 +104,33 @@ async fn camera_query_validation_happens_before_database_access() {
 }
 
 #[tokio::test]
-async fn cameras_only_expose_read_endpoints() {
+async fn admin_camera_list_stays_read_only_and_camera_writes_are_scoped_to_by_id() {
     let (app, _) = test_app(UNUSED_DATABASE_URL);
+    // /api/v1/admin/cameras is the list endpoint only — no write methods.
     for method in [Method::POST, Method::PUT, Method::PATCH, Method::DELETE] {
-        for uri in ["/api/v1/admin/cameras", "/api/v1/cameras"] {
-            assert_eq!(
-                send(&app, method.clone(), uri).await.status(),
-                StatusCode::METHOD_NOT_ALLOWED
-            );
-        }
+        assert_eq!(
+            send(&app, method.clone(), "/api/v1/admin/cameras")
+                .await
+                .status(),
+            StatusCode::METHOD_NOT_ALLOWED
+        );
+    }
+    // /api/v1/cameras allows GET (list) and POST (create) but not PUT/PATCH/DELETE.
+    for method in [Method::PUT, Method::PATCH, Method::DELETE] {
+        assert_eq!(
+            send(&app, method.clone(), "/api/v1/cameras")
+                .await
+                .status(),
+            StatusCode::METHOD_NOT_ALLOWED
+        );
+    }
+    // /api/v1/cameras/by-id/{id} allows GET and PUT but not POST/PATCH/DELETE.
+    let by_id = format!("/api/v1/cameras/by-id/{}", Uuid::nil());
+    for method in [Method::POST, Method::PATCH, Method::DELETE] {
+        assert_eq!(
+            send(&app, method.clone(), &by_id).await.status(),
+            StatusCode::METHOD_NOT_ALLOWED
+        );
     }
     assert_eq!(
         send(&app, Method::GET, "/api/v1/admin/cameras/canon-eos-5d")

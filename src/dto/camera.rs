@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::dto::Pagination;
@@ -21,7 +21,7 @@ pub struct CameraResponse {
     pub sensor_format: String,
     pub effective_megapixels: f64,
     pub image_processor: String,
-    pub lens_mount: String,
+    pub lens_mount: Option<String>,
     pub max_continuous_fps: f64,
     pub continuous_shooting_note: Option<String>,
     pub video_spec: String,
@@ -75,4 +75,28 @@ pub struct CameraComparisonResponse {
     pub devices: Vec<CameraResponse>,
     pub canonical_path: String,
     pub schema_version: u8,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CameraWriteRequest {
+    pub brand_slug: String,
+    pub brand_name: String,
+    pub slug: String,
+    pub name: String,
+    pub series: String,
+    /// YYYY-MM.
+    pub release_month: String,
+    pub camera_type: String,
+    pub sensor_format: String,
+    pub effective_megapixels: f64,
+    pub image_processor: String,
+    pub lens_mount: Option<String>,
+    pub max_continuous_fps: f64,
+    pub continuous_shooting_note: Option<String>,
+    pub video_spec: String,
+    pub body_weight_g: i32,
+    pub source_url: String,
+    pub source_title: String,
+    pub checked_at: DateTime<Utc>,
 }

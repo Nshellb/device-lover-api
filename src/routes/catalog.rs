@@ -10,8 +10,8 @@ use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::catalog::{
-    MAX_COMPARISON_DEVICES, SCHEMA_VERSION, normalize_route_identifier, normalize_search_term,
-    spec_keys_for_category, specification_sections,
+    MAX_COMPARISON_DEVICES, SCHEMA_VERSION, expand_search_synonyms, normalize_route_identifier,
+    normalize_search_term, spec_keys_for_category, specification_sections,
 };
 use crate::dto::{
     AliasDetail, AliasInput, CatalogBrand, CatalogSchemaResponse, ComparisonResponse,
@@ -761,7 +761,7 @@ fn validate_write_request(payload: &DeviceWriteRequest, category: &str) -> ApiRe
     Ok(())
 }
 
-async fn upsert_brand(
+pub(crate) async fn upsert_brand(
     transaction: &mut Transaction<'_, Postgres>,
     slug: &str,
     name: &str,
@@ -927,7 +927,7 @@ async fn insert_source(
     Ok(())
 }
 
-fn map_write_db_error(error: sqlx::Error) -> AppError {
+pub(crate) fn map_write_db_error(error: sqlx::Error) -> AppError {
     if let sqlx::Error::Database(db_error) = &error {
         return match db_error.kind() {
             ErrorKind::UniqueViolation => AppError::Conflict(db_error.message().to_string()),
@@ -1365,7 +1365,7 @@ fn korean_today() -> NaiveDate {
         .date_naive()
 }
 
-fn reject_query_parameters(raw_query: Option<&str>) -> ApiResult<()> {
+pub(crate) fn reject_query_parameters(raw_query: Option<&str>) -> ApiResult<()> {
     if parse_query_pairs(raw_query)?.is_empty() {
         Ok(())
     } else {
@@ -1461,6 +1461,7 @@ impl AdminDeviceListQuery {
                 "q must be at most 100 non-control characters".into(),
             ));
         }
+        let search = expand_search_synonyms(&search);
         let search_field = values
             .remove("search_field")
             .unwrap_or_else(|| "name".into());
@@ -1604,7 +1605,7 @@ fn parse_bounded_u32(
     Ok(parsed)
 }
 
-fn valid_slug(value: &str, maximum: usize) -> bool {
+pub(crate) fn valid_slug(value: &str, maximum: usize) -> bool {
     !value.is_empty()
         && value.len() <= maximum
         && value.split('-').all(|segment| {

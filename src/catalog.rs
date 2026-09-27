@@ -74,12 +74,36 @@ pub fn normalize_route_identifier(value: &str) -> Result<String, AppError> {
     Ok(result)
 }
 
+// Korean product-line names for devices whose stored name/aliases are only
+// ever in English (e.g. "iPhone 16", "Galaxy S24") — without this, a Korean
+// query for either never matches anything, since nothing else in the data
+// carries the Korean spelling. Expanding to the English form here means any
+// current or future device under that product line is searchable by either
+// spelling, with no per-device alias data to add or keep up to date.
+const SEARCH_TERM_SYNONYMS: [(&str, &str); 4] = [
+    ("아이폰", "iphone"),
+    ("갤럭시", "galaxy"),
+    ("캐논", "canon"),
+    ("삼성", "samsung"),
+];
+
+pub fn expand_search_synonyms(value: &str) -> String {
+    let mut result = value.to_string();
+    for (korean, english) in SEARCH_TERM_SYNONYMS {
+        if result.contains(korean) {
+            result = result.replace(korean, english);
+        }
+    }
+    result
+}
+
 pub fn normalize_search_term(value: &str) -> String {
-    value
+    let normalized: String = value
         .nfkc()
         .flat_map(char::to_lowercase)
         .filter(|character| character.is_alphanumeric() || matches!(character, ',' | '+'))
-        .collect()
+        .collect();
+    expand_search_synonyms(&normalized)
 }
 
 pub fn specification_sections() -> Vec<SpecificationSection> {
@@ -91,6 +115,7 @@ pub fn specification_sections() -> Vec<SpecificationSection> {
             &[
                 ("processor", "프로세서 (AP)"),
                 ("memory", "메모리"),
+                ("rearCameras", "카메라"),
                 ("displaySize", "디스플레이 크기"),
                 ("dimensions", "크기"),
                 ("weight", "무게"),
@@ -202,6 +227,14 @@ mod tests {
     }
 
     #[test]
+    fn search_normalization_expands_korean_product_line_names() {
+        assert_eq!(normalize_search_term("아이폰"), "iphone");
+        assert_eq!(normalize_search_term("아이폰 16"), "iphone16");
+        assert_eq!(normalize_search_term("갤럭시 S24"), "galaxys24");
+        assert_eq!(expand_search_synonyms("아이폰 16 찾기"), "iphone 16 찾기");
+    }
+
+    #[test]
     fn schema_contains_expected_rows() {
         let sections = specification_sections();
         assert_eq!(sections.len(), 6);
@@ -210,7 +243,7 @@ mod tests {
                 .iter()
                 .map(|section| section.rows.len())
                 .sum::<usize>(),
-            32
+            33
         );
     }
 }

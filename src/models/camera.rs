@@ -14,7 +14,7 @@ pub struct CameraRow {
     pub sensor_format: String,
     pub effective_megapixels: f64,
     pub image_processor: String,
-    pub lens_mount: String,
+    pub lens_mount: Option<String>,
     pub max_continuous_fps: f64,
     pub continuous_shooting_note: Option<String>,
     pub video_spec: String,

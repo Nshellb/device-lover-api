@@ -3,6 +3,7 @@ use axum::Router;
 use crate::state::AppState;
 
 pub mod auth;
+pub mod brands;
 pub mod cameras;
 pub mod catalog;
 pub mod health;
@@ -13,6 +14,7 @@ pub mod users;
 pub fn router() -> Router<AppState> {
     Router::new()
         .merge(health::router())
+        .merge(brands::router())
         .merge(cameras::router())
         .merge(catalog::router())
         .merge(popularity::router())

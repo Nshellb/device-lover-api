@@ -1,4 +1,5 @@
 mod auth;
+mod brand;
 mod camera;
 mod catalog;
 mod popularity;
@@ -6,7 +7,10 @@ mod route_miss;
 mod user;
 
 pub use auth::{LoginRequest, TokenResponse};
-pub use camera::{CameraComparisonResponse, CameraListResponse, CameraResponse};
+pub use brand::{AdminBrand, BrandInput};
+pub use camera::{
+    CameraComparisonResponse, CameraListResponse, CameraResponse, CameraWriteRequest,
+};
 pub use catalog::{
     AliasDetail, AliasInput, CatalogBrand, CatalogSchemaResponse, ColorInput, ComparisonResponse,
     ConfigurationInput, DeviceColor, DeviceConfiguration, DeviceDetail, DeviceListResponse,

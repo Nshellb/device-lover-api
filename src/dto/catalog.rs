@@ -61,6 +61,7 @@ pub struct DeviceDetail {
     pub summary: DeviceSummary,
     pub variant: Option<String>,
     pub configurations: Vec<DeviceConfiguration>,
+    pub colors: Vec<DeviceColor>,
     pub source_url: String,
     pub sources: Vec<DeviceSource>,
     #[schema(value_type = Object)]
@@ -87,6 +88,16 @@ pub struct DeviceConfiguration {
     pub storage_gb: i32,
     pub ram_gb: Option<i32>,
     pub ram_status: String,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceColor {
+    pub id: Uuid,
+    pub name: String,
+    pub image_url: Option<String>,
+    pub color_code: Option<String>,
+    pub exclusive: bool,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -180,6 +191,15 @@ pub struct ConfigurationInput {
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
+pub struct ColorInput {
+    pub name: String,
+    pub image_url: Option<String>,
+    pub color_code: Option<String>,
+    pub exclusive: bool,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct DeviceWriteRequest {
     pub brand_slug: String,
     pub brand_name: String,
@@ -193,6 +213,7 @@ pub struct DeviceWriteRequest {
     pub aliases: Vec<AliasInput>,
     pub sources: Vec<SourceInput>,
     pub configurations: Vec<ConfigurationInput>,
+    pub colors: Vec<ColorInput>,
     #[schema(value_type = Object)]
     pub specs: HashMap<String, SpecInput>,
 }

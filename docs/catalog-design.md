@@ -2,7 +2,7 @@
 
 작성일: 2026-09-21 · 상태: 구현 전 설계 초안
 
-현재 화면에 맞춰 **한국 시장 스마트폰 모델을 1~3개 조회·비교하는 공개 카탈로그**를 설계한다. PostgreSQL 16, Rust/Axum, SQLx, utoipa를 유지한다. 모델·식별자·용량별 구성·출처는 관계형 테이블에, 형태가 다른 27개 사양은 고정된 키와 타입을 갖는 JSONB 값으로 저장한다.
+현재 화면에 맞춰 **한국 시장 스마트폰 모델을 1~3개 조회·비교하는 공개 카탈로그**를 설계한다. PostgreSQL 16, Rust/Axum, SQLx, utoipa를 유지한다. 모델·식별자·용량별 구성·색상·출처는 관계형 테이블에, 형태가 다른 26개 사양은 고정된 키와 타입을 갖는 JSONB 값으로 저장한다.
 
 산출물은 [SQL 초안](catalog-schema.sql)과 [OpenAPI 3.1 계약](catalog-openapi.yaml)이다. SQL은 `migrations/` 밖에 있으며 실행하지 않았다. API도 아직 구현하거나 현재 Swagger에 등록하지 않았다. 기존 users/auth와 프론트 동작은 그대로다.
 
@@ -33,7 +33,7 @@
 - `device_configurations`: 공식 자료로 확인한 실제 RAM/저장 용량 조합. 확인 전에는 빈 배열이다. 모든 옵션의 조합을 임의로 생성하지 않는다.
 - `memory.raw.optionsGb`, `storage.raw.optionsGb`: 모델의 알려진 옵션 목록. 특정 RAM이 특정 용량에서만 제공되면 configurations에 실제 조합을 넣고 detail에 설명한다.
 
-색상별 판매 SKU, 가격·재고·판매처, 즐겨찾기, 저장된 비교, 관리자 UI, 카메라 카테고리는 현재 범위에서 제외한다. 다국가 지원은 모델 번호 중복과 지역별 사양을 정의한 뒤 식별자 namespace를 확장한다.
+색상별 이미지는 device_colors로 범위에 포함했다. 색상별 판매 SKU, 가격·재고·판매처, 즐겨찾기, 저장된 비교, 관리자 UI, 카메라 카테고리는 여전히 현재 범위에서 제외한다. 다국가 지원은 모델 번호 중복과 지역별 사양을 정의한 뒤 식별자 namespace를 확장한다.
 
 ## 2. DB 구조
 
@@ -43,6 +43,7 @@ erDiagram
     device_models ||--o{ device_aliases : labels
     device_models ||--o{ device_identifiers : resolves
     device_models ||--o{ device_configurations : offers
+    device_models ||--o{ device_colors : offers
     device_models ||--o{ device_sources : documents
     device_models ||--o{ device_spec_values : describes
     device_sources o|--o{ device_spec_values : overrides_source
@@ -86,6 +87,14 @@ erDiagram
         text label
         integer position
     }
+    device_colors {
+        uuid id PK
+        uuid device_id FK
+        text name
+        text image_url
+        boolean exclusive
+        integer position
+    }
     device_sources {
         uuid id PK
         uuid device_id FK
@@ -112,8 +121,9 @@ erDiagram
 | device_aliases | 원본 별칭·모델 번호·하드웨어 식별자. kind와 position으로 종류·표시 순서 보존 |
 | device_identifiers | slug·이름·별칭의 파생 조회 레지스트리. route_key 전역 유일, 같은 모델의 정규화 중복은 1행으로 합침 |
 | device_configurations | 검증된 구성, RAM 미상/미공개를 0과 구분. `(device_id,storage_gb,ram_gb)`는 NULL도 같은 값으로 간주해 중복 거절 |
+| device_colors | 기기별 색상 한 행. 이름·이미지·전용 판매 여부와 표시 순서(position)를 보존한다. 판매 SKU·가격·재고는 다루지 않는다 |
 | device_sources | 복수 출처, 대표는 최대 1개. 사양별 다른 출처가 없으면 대표 사용 |
-| device_spec_values | `(device_id,spec_key)`당 한 행. key 27개 고정. source_id+device_id 복합 FK로 다른 모델의 출처 참조 금지 |
+| device_spec_values | `(device_id,spec_key)`당 한 행. key 26개 고정. source_id+device_id 복합 FK로 다른 모델의 출처 참조 금지 |
 
 섹션·행 순서, 한글 라벨, formatter, visual 색상 테마는 코드의 사양 레지스트리가 소유한다. 화면 배치용 DB 테이블은 만들지 않는다. 같은 memory가 두 섹션에 나타나도 DB 값은 하나다.
 
@@ -121,7 +131,7 @@ JSONB는 키마다 다른 객체·배열을 보존하기 위한 선택이다. �
 
 ### 제약과 쓰기 책임
 
-SQL은 PK/FK, 유일성, 양수 용량, 허용 key/status, 대표 출처 최대 1개, known/raw 관계를 강제한다. **27개 사양 완비, 대표 출처 최소 1개, key별 raw 구조, 식별자와 원본 일치**는 서비스가 한 트랜잭션에서 검증한다. 다른 행·테이블의 규칙을 일반 CHECK로 보장한다고 가정하지 않는다. [PostgreSQL 16 제약조건](https://www.postgresql.org/docs/16/ddl-constraints.html)
+SQL은 PK/FK, 유일성, 양수 용량, 허용 key/status, 대표 출처 최대 1개, known/raw 관계를 강제한다. **26개 사양 완비, 대표 출처 최소 1개, key별 raw 구조, 식별자와 원본 일치**는 서비스가 한 트랜잭션에서 검증한다. 다른 행·테이블의 규칙을 일반 CHECK로 보장한다고 가정하지 않는다. [PostgreSQL 16 제약조건](https://www.postgresql.org/docs/16/ddl-constraints.html)
 
 향후 seed/import 또는 관리자 쓰기는 다음 순서로 처리한다.
 
@@ -131,7 +141,7 @@ SQL은 PK/FK, 유일성, 양수 용량, 허용 key/status, 대표 출처 최대 
 4. 공개 조건을 재검사하고 자식 변경도 device_models.updated_at에 반영한다. 초안에는 timestamp trigger가 없으므로 모든 쓰기 경로가 책임진다.
 5. 커밋한다. 공개 조건을 깨는 수정은 거절하거나 명시적으로 draft로 전환한다.
 
-공개 조건은 published, verified_at 존재, 출시일 존재, 27개 사양 존재, 확인일이 있는 대표 출처 정확히 1개, 사양별 override 출처 확인일 존재다. 모든 사양을 known으로 강제하지 않으며 미공개 값은 그대로 남긴다. 공개 모델은 삭제 대신 archive해 식별자 재사용을 막는다.
+공개 조건은 published, verified_at 존재, 출시일 존재, 26개 사양 존재, 확인일이 있는 대표 출처 정확히 1개, 사양별 override 출처 확인일 존재다. 모든 사양을 known으로 강제하지 않으며 미공개 값은 그대로 남긴다. 공개 모델은 삭제 대신 archive해 식별자 재사용을 막는다.
 
 공개 조회는 추가로 `release_date <= (now() AT TIME ZONE 'Asia/Seoul')::date`를 요구한다. 날짜 기준은 요청에서 한 번 계산한다. draft·archived·미래 출시는 목록에서 제외하고 직접 조회 시 404다. 출시일은 DATE, 기록 시각은 TIMESTAMPTZ/RFC 3339다.
 
@@ -161,9 +171,9 @@ SQL은 PK/FK, 유일성, 양수 용량, 허용 key/status, 대표 출처 최대 
 
 unknown은 `정보 없음`, not_disclosed는 `공식 미공개`, not_applicable은 `해당 없음`으로 표시한다. 미지원은 알려진 사실이므로 stylus의 `known + {supported:false}`와 `value:"미지원"`으로 표현한다. 텍스트만 보고 DB status를 추측하지 않는다. 전용 광학 망원이 없는 경우 telephoto 광학 배율 배열은 비어 있을 수 있으며 센서 크롭은 별도 배열이다.
 
-응답은 27개 key를 항상 포함한다. 누락된 specs를 undefined로 반환하면 현재 표가 깨진다. fixture를 draft로 가져올 때 미수집 필드는 unknown envelope로 채울 수 있다. releaseDate는 모델 필드 한 곳에만 저장한다.
+응답은 26개 key를 항상 포함한다. 누락된 specs를 undefined로 반환하면 현재 표가 깨진다. fixture를 draft로 가져올 때 미수집 필드는 unknown envelope로 채울 수 있다. releaseDate는 모델 필드 한 곳에만 저장한다.
 
-### 27개 사양 key의 raw 타입
+### 26개 사양 key의 raw 타입
 
 정확한 필수/선택 속성·범위·배열 제약은 [OpenAPI](catalog-openapi.yaml)가 기준이다. `?`는 생략 가능하며 미상인 하위 항목을 0으로 채우지 않는다. 아래 수치는 양수다.
 
@@ -180,7 +190,6 @@ unknown은 `정보 없음`, not_disclosed는 `공식 미공개`, not_applicable�
 | waterResistance | `{rating,maxDepthM?,maxDurationMinutes?}` | 등급과 수심·시간 조건 분리 |
 | speakers | `{layout,count?}` | 스테레오 등 구조 |
 | operatingSystem | `{name,version?,skin?}` | 출시 시 OS; 현재 최신 업데이트 의미 아님 |
-| colors | `[{name,exclusive:boolean}]` | 일반/전용 색상 구분 |
 | displayPanel | string | 제조사 패널 명칭 |
 | displayResolution | `{widthPx,heightPx,ppi?}` | 물리 방향 기준; 세로형 폰 UI는 height×width |
 | refreshRate | `{maxHz,minHz?}` | minHz ≤ maxHz 입력 검증 |
@@ -213,7 +222,7 @@ unknown은 `정보 없음`, not_disclosed는 `공식 미공개`, not_applicable�
 
 DeviceSummary: id, slug, category, brand, brandSlug, name, releaseDate, marketCode, aliases, modelNumbers, imageUrl. aliases는 모델 번호·하드웨어 식별자도 포함한다. modelNumbers는 두 종류만 표시 규칙에 맞춰 추출한다. DeviceDetail은 variant, configurations, sourceUrl, sources, specs, updatedAt을 추가한다. sourceUrl은 대표 출처에서 파생한다.
 
-섹션 key는 basic/display/performance/camera/battery/connectivity다. 현재 33개 행의 key·라벨·순서를 유지한다. row key에는 releaseDate가 포함되지만 stylus 독립 행은 추가하지 않는다. schemaVersion은 DB migration 번호가 아닌 행/formatter 계약 버전이다.
+섹션 key는 basic/display/performance/camera/battery/connectivity다. 현재 32개 행의 key·라벨·순서를 유지한다. row key에는 releaseDate가 포함되지만 stylus 독립 행은 추가하지 않는다. schemaVersion은 DB migration 번호가 아닌 행/formatter 계약 버전이다.
 
 ### 검색과 페이지네이션
 
@@ -295,11 +304,11 @@ Next 서버에서 Rust API를 호출하는 방식으로 시작하고, 브라우�
 
 ## 6. 구현 순서와 검증
 
-1. 도메인: 27개 raw Rust 타입, 상태 enum, 정규화, section registry, DTO를 구현한다. 실제 계약은 utoipa에 등록하고 초안과 drift를 확인한다.
+1. 도메인: 26개 raw Rust 타입, 상태 enum, 정규화, section registry, DTO를 구현한다. 실제 계약은 utoipa에 등록하고 초안과 drift를 확인한다.
 2. DB: DDL을 다음 SQLx migration으로 옮겨 별도 개발 DB에서 검증한다. 현재 0001/0002가 있고 main.rs가 시작 시 자동 적용하므로 이번 초안은 migrations 밖에 뒀다.
 3. 데이터: fixture의 spread/override를 펼쳐 19개 모두 draft로 수입한다. 충돌·단위·옵션·실제 공식 사양을 검토한 뒤 공개한다. 이번 작업은 제품 사실 검증을 포함하지 않는다. verified_at/checked_at을 임의로 채우지 않는다.
 4. API: schema → 목록/검색 → detail/comparisons → home. 초기 입력은 로컬 import로 처리하고, 사용자 JWT만으로 제품 수정 권한을 주는 관리자 API는 만들지 않는다.
-5. 프론트: adapter → 빈 상태 → 상세/비교 → 검색 → 선택 목록 → typed formatter 순서. 기존 33개 행으로 화면을 대조한다.
+5. 프론트: adapter → 빈 상태 → 상세/비교 → 검색 → 선택 목록 → typed formatter 순서. 기존 32개 행으로 화면을 대조한다.
 
 | 범위 | 구현 시 검증 사례 |
 | --- | --- |
@@ -309,7 +318,7 @@ Next 서버에서 Rust API를 호출하는 방식으로 시작하고, 브라우�
 | 비교 | 1/2/3개 순서, 0/4개 400, alias+slug 중복 400, 일부 미존재 404, URL encoding |
 | 홈 | 날짜 tie, 한국 자정, 미래/draft/archive 제외, 0/1개 정상 응답 |
 | 계약 | $ref·예제, 오류 envelope, raw와 표시값 일치, 목록 specs 제외 |
-| UI | 6섹션/33행, 합성 행, stylus, 모델 번호, null 이미지, 검색 페이지 변경 후 선택 유지 |
+| UI | 6섹션/32행, 합성 행, stylus, 모델 번호, null 이미지, 검색 페이지 변경 후 선택 유지 |
 
 이번 검증에서 프론트/SQL/OpenAPI의 27개 key와 6개 섹션·33개 행의 순서/라벨 일치, SQL 7개 테이블 DDL 파싱, OpenAPI 3.1 구조·참조·응답 예제 검증을 통과했다. PostgreSQL 서버에 실제 적용하거나 API 통합 테스트를 수행한 것은 아니다. 프로덕션 프론트 build는 실행하지 않았다.
 

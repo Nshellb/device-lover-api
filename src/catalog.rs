@@ -6,9 +6,8 @@ use crate::error::AppError;
 pub const SCHEMA_VERSION: u8 = 1;
 pub const MAX_COMPARISON_DEVICES: usize = 3;
 
-pub const SPEC_KEYS: [&str; 27] = [
+pub const SPEC_KEYS: [&str; 26] = [
     "operatingSystem",
-    "colors",
     "dimensions",
     "weight",
     "storage",
@@ -100,7 +99,6 @@ pub fn specification_sections() -> Vec<SpecificationSection> {
                 ("waterResistance", "방수방진"),
                 ("speakers", "스피커"),
                 ("operatingSystem", "운영체제"),
-                ("colors", "색상"),
                 ("releaseDate", "출시일"),
             ],
         ),
@@ -212,7 +210,7 @@ mod tests {
                 .iter()
                 .map(|section| section.rows.len())
                 .sum::<usize>(),
-            33
+            32
         );
     }
 }

@@ -70,8 +70,6 @@ paths:
                         label: 스피커
                       - key: operatingSystem
                         label: 운영체제
-                      - key: colors
-                        label: 색상
                       - key: releaseDate
                         label: 출시일
                   - key: display
@@ -395,7 +393,6 @@ components:
       type: string
       enum:
         - operatingSystem
-        - colors
         - dimensions
         - weight
         - storage
@@ -425,7 +422,6 @@ components:
       type: string
       enum:
         - operatingSystem
-        - colors
         - dimensions
         - weight
         - storage
@@ -452,7 +448,7 @@ components:
         - biometrics
         - waterResistance
         - releaseDate
-      description: releaseDate 행은 DeviceSummary.releaseDate에서 읽는다. stylus는 사양에 존재하지만 v1의 현재 33개 표시 행에는 포함되지 않는다.
+      description: releaseDate 행은 DeviceSummary.releaseDate에서 읽는다. stylus는 사양에 존재하지만 v1의 현재 32개 표시 행에는 포함되지 않는다.
     SpecValue:
       type: object
       additionalProperties: false
@@ -534,31 +530,6 @@ components:
             raw:
               anyOf:
                 - $ref: '#/components/schemas/OperatingSystemRaw'
-                - type: 'null'
-    ColorsRaw:
-      type: array
-      items:
-        type: object
-        additionalProperties: false
-        required:
-          - name
-          - exclusive
-        properties:
-          name:
-            type: string
-            minLength: 1
-          exclusive:
-            type: boolean
-      minItems: 1
-      uniqueItems: true
-      description: 제조사 표기 색상과 전용 판매 색상 여부.
-    ColorsSpec:
-      allOf:
-        - $ref: '#/components/schemas/SpecValue'
-        - properties:
-            raw:
-              anyOf:
-                - $ref: '#/components/schemas/ColorsRaw'
                 - type: 'null'
     DimensionsRaw:
       type: object
@@ -1161,7 +1132,6 @@ components:
       additionalProperties: false
       required:
         - operatingSystem
-        - colors
         - dimensions
         - weight
         - storage
@@ -1190,8 +1160,6 @@ components:
       properties:
         operatingSystem:
           $ref: '#/components/schemas/OperatingSystemSpec'
-        colors:
-          $ref: '#/components/schemas/ColorsSpec'
         dimensions:
           $ref: '#/components/schemas/DimensionsSpec'
         weight:
@@ -1243,7 +1211,7 @@ components:
         waterResistance:
           $ref: '#/components/schemas/WaterResistanceSpec'
       description: >-
-        27개 키가 항상 존재한다. 미확인 데이터는 키를 생략하지 않고 status:unknown, raw:null로 응답한다. releaseDate는 기기 기본 정보이며 여기에 중복
+        26개 키가 항상 존재한다. 미확인 데이터는 키를 생략하지 않고 status:unknown, raw:null로 응답한다. releaseDate는 기기 기본 정보이며 여기에 중복
         저장하지 않는다.
     DeviceConfiguration:
       type: object
@@ -1291,6 +1259,31 @@ components:
             ramGb:
               type: 'null'
       description: 해당 한국 모델에서 실제로 검증한 저장 용량/RAM 조합. RAM 미공개를 0GB로 표현하지 않는다.
+    DeviceColor:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - imageUrl
+        - exclusive
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+        imageUrl:
+          type:
+            - string
+            - 'null'
+          format: uri
+          description: 색상 이미지가 없으면 null이며 프론트가 대체 이미지를 표시한다.
+          pattern: ^https://
+        exclusive:
+          type: boolean
+      description: 기기별 색상 한 행. name은 제조사 표기 색상, exclusive는 전용 판매 색상 여부. 업로드 파이프라인 없이 imageUrl을 직접 저장하며, 없으면 null이다.
     DeviceSource:
       type: object
       additionalProperties: false
@@ -1409,6 +1402,7 @@ components:
         - imageUrl
         - variant
         - configurations
+        - colors
         - sourceUrl
         - sources
         - specs
@@ -1468,6 +1462,11 @@ components:
           items:
             $ref: '#/components/schemas/DeviceConfiguration'
           description: 검증된 실제 조합만 포함한다. 아직 확인한 조합이 없으면 빈 배열이다.
+        colors:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceColor'
+          description: 검증된 색상만 포함하며 표시 순서를 배열 순서로 보존한다.
         sourceUrl:
           type: string
           format: uri
@@ -1672,7 +1671,7 @@ components:
           minItems: 6
           maxItems: 6
       description: >-
-        schemaVersion=1은 basic/display/performance/camera/battery/connectivity 순서의 6개 섹션, 총 33개 행을 유지한다. 섹션 간
+        schemaVersion=1은 basic/display/performance/camera/battery/connectivity 순서의 6개 섹션, 총 32개 행을 유지한다. 섹션 간
         동일 spec key 재사용은 의도적이며 표시 순서를 배열로 전달한다. 브랜드 목록은 동일한 공개/검증/출시 조건을 만족하는 카탈로그 모델이 하나 이상 있는 브랜드만 포함한다.
     ErrorEnvelope:
       type: object

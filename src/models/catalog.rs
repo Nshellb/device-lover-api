@@ -37,6 +37,16 @@ pub struct ConfigurationRow {
 }
 
 #[derive(sqlx::FromRow)]
+pub struct ColorRow {
+    pub id: Uuid,
+    pub device_id: Uuid,
+    pub name: String,
+    pub image_url: Option<String>,
+    pub color_code: Option<String>,
+    pub exclusive: bool,
+}
+
+#[derive(sqlx::FromRow)]
 pub struct SourceRow {
     pub id: Uuid,
     pub device_id: Uuid,

@@ -15,11 +15,11 @@ use crate::catalog::{
 };
 use crate::dto::{
     AliasDetail, AliasInput, CatalogBrand, CatalogSchemaResponse, ComparisonResponse,
-    DeviceConfiguration, DeviceDetail, DeviceListResponse, DeviceSource, DeviceSummary,
-    DeviceWriteRequest, HomeResponse, Pagination, SourceInput, SpecValue,
+    DeviceColor, DeviceConfiguration, DeviceDetail, DeviceListResponse, DeviceSource,
+    DeviceSummary, DeviceWriteRequest, HomeResponse, Pagination, SourceInput, SpecValue,
 };
 use crate::error::{ApiResult, AppError};
-use crate::models::{AliasRow, ConfigurationRow, DeviceRow, SourceRow, SpecRow};
+use crate::models::{AliasRow, ColorRow, ConfigurationRow, DeviceRow, SourceRow, SpecRow};
 use crate::state::AppState;
 
 const PUBLIC_DEVICE_SELECT: &str = r#"
@@ -32,7 +32,7 @@ const PUBLIC_DEVICE_SELECT: &str = r#"
        AND dm.verified_at IS NOT NULL
        AND dm.release_date IS NOT NULL
        AND dm.release_date <= $1
-       AND (SELECT count(*) FROM device_spec_values sv WHERE sv.device_id = dm.id) = 27
+       AND (SELECT count(*) FROM device_spec_values sv WHERE sv.device_id = dm.id) = 26
        AND EXISTS (
            SELECT 1 FROM device_sources ds
             WHERE ds.device_id = dm.id AND ds.is_primary AND ds.checked_at IS NOT NULL
@@ -726,6 +726,19 @@ fn validate_write_request(payload: &DeviceWriteRequest, category: &str) -> ApiRe
         }
     }
 
+    let mut seen_color_names: HashSet<&str> = HashSet::new();
+    for color in &payload.colors {
+        if color.name.trim().is_empty() {
+            return Err(AppError::Validation("color name must not be empty".into()));
+        }
+        if !seen_color_names.insert(color.name.as_str()) {
+            return Err(AppError::Validation(format!(
+                "duplicate color name: {}",
+                color.name
+            )));
+        }
+    }
+
     if payload
         .sources
         .iter()
@@ -777,6 +790,7 @@ async fn replace_children(
         "device_identifiers",
         "device_sources",
         "device_configurations",
+        "device_colors",
         "device_spec_values",
     ] {
         sqlx::query(&format!("DELETE FROM {table} WHERE device_id = $1"))
@@ -827,6 +841,24 @@ async fn replace_children(
         .bind(config.storage_gb)
         .bind(config.ram_gb)
         .bind(&config.ram_status)
+        .bind(position as i32)
+        .execute(&mut **transaction)
+        .await
+        .map_err(map_write_db_error)?;
+    }
+
+    for (position, color) in payload.colors.iter().enumerate() {
+        sqlx::query(
+            r#"
+            INSERT INTO device_colors (device_id, name, image_url, color_code, exclusive, position)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            "#,
+        )
+        .bind(device_id)
+        .bind(&color.name)
+        .bind(&color.image_url)
+        .bind(&color.color_code)
+        .bind(color.exclusive)
         .bind(position as i32)
         .execute(&mut **transaction)
         .await
@@ -978,6 +1010,10 @@ async fn load_admin_detail(
         .await?
         .remove(&device_id)
         .unwrap_or_default();
+    let colors = group_colors(transaction, &ids)
+        .await?
+        .remove(&device_id)
+        .unwrap_or_default();
 
     let alias_details = alias_list
         .iter()
@@ -992,6 +1028,7 @@ async fn load_admin_detail(
         summary,
         variant: row.summary_variant_label,
         configurations,
+        colors,
         source_url,
         sources: device_sources,
         specs: response_specs,
@@ -1088,6 +1125,7 @@ async fn load_details(
 
     let aliases = load_aliases(transaction, ids).await?;
     let mut configurations = group_configurations(transaction, ids).await?;
+    let mut colors = group_colors(transaction, ids).await?;
     let mut sources = group_sources(transaction, ids).await?;
     let mut specs = group_specs(transaction, ids).await?;
     let mut details = Vec::with_capacity(ids.len());
@@ -1166,6 +1204,7 @@ async fn load_details(
             summary,
             variant: row.summary_variant_label,
             configurations: configurations.remove(id).unwrap_or_default(),
+            colors: colors.remove(id).unwrap_or_default(),
             source_url,
             sources: device_sources,
             specs: response_specs,
@@ -1216,6 +1255,29 @@ async fn group_configurations(
                 ram_gb: row.ram_gb,
                 ram_status: row.ram_status,
             });
+    }
+    Ok(result)
+}
+
+async fn group_colors(
+    transaction: &mut Transaction<'_, Postgres>,
+    ids: &[Uuid],
+) -> ApiResult<HashMap<Uuid, Vec<DeviceColor>>> {
+    let rows = sqlx::query_as::<_, ColorRow>(
+        "SELECT id, device_id, name, image_url, color_code, exclusive FROM device_colors WHERE device_id = ANY($1) ORDER BY device_id, position",
+    )
+    .bind(ids)
+    .fetch_all(&mut **transaction)
+    .await?;
+    let mut result = HashMap::<Uuid, Vec<DeviceColor>>::new();
+    for row in rows {
+        result.entry(row.device_id).or_default().push(DeviceColor {
+            id: row.id,
+            name: row.name,
+            image_url: row.image_url,
+            color_code: row.color_code,
+            exclusive: row.exclusive,
+        });
     }
     Ok(result)
 }

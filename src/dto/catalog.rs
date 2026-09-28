@@ -3,7 +3,6 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -114,8 +113,6 @@ pub struct DeviceSource {
 #[serde(rename_all = "camelCase")]
 pub struct SpecValue {
     pub status: String,
-    #[schema(value_type = Object, nullable = true)]
-    pub raw: Option<Value>,
     pub value: String,
     pub detail: Option<String>,
     pub muted: bool,
@@ -158,8 +155,6 @@ pub struct HomeResponse {
 #[serde(rename_all = "camelCase")]
 pub struct SpecInput {
     pub status: String,
-    #[schema(value_type = Object, nullable = true)]
-    pub raw: Option<Value>,
     pub value: String,
     pub detail: Option<String>,
 }

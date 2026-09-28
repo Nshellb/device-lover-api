@@ -686,12 +686,6 @@ fn validate_write_request(payload: &DeviceWriteRequest, category: &str) -> ApiRe
         ) {
             return Err(AppError::Validation(format!("spec {key}: invalid status")));
         }
-        let has_raw = spec.raw.as_ref().is_some_and(|value| !value.is_null());
-        if (spec.status == "known") != has_raw {
-            return Err(AppError::Validation(format!(
-                "spec {key}: raw must be present only when status is known"
-            )));
-        }
         if spec.value.trim().is_empty() {
             return Err(AppError::Validation(format!(
                 "spec {key}: value must not be empty"
@@ -868,14 +862,13 @@ async fn replace_children(
     for (key, spec) in &payload.specs {
         sqlx::query(
             r#"
-            INSERT INTO device_spec_values (device_id, spec_key, status, raw_value, display_value, detail)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO device_spec_values (device_id, spec_key, status, display_value, detail)
+            VALUES ($1, $2, $3, $4, $5)
             "#,
         )
         .bind(device_id)
         .bind(key)
         .bind(&spec.status)
-        .bind(&spec.raw)
         .bind(&spec.value)
         .bind(&spec.detail)
         .execute(&mut **transaction)
@@ -987,18 +980,12 @@ async fn load_admin_detail(
         .remove(&device_id)
         .unwrap_or_default()
     {
-        let unsupported = spec
-            .raw_value
-            .as_ref()
-            .and_then(|raw| raw.get("supported"))
-            .and_then(|supported| supported.as_bool())
-            == Some(false);
+        let unsupported = spec.display_value == "미지원";
         response_specs.insert(
             spec.spec_key,
             SpecValue {
                 muted: spec.status != "known" || unsupported,
                 status: spec.status,
-                raw: spec.raw_value,
                 value: spec.display_value,
                 detail: spec.detail,
                 source_id: spec.source_id.filter(|id| source_ids.contains(id)),
@@ -1165,22 +1152,15 @@ async fn load_details(
             if spec
                 .source_id
                 .is_some_and(|source_id| !source_ids.contains(&source_id))
-                || (spec.status == "known") != spec.raw_value.is_some()
             {
                 return Err(AppError::Internal);
             }
-            let unsupported = spec
-                .raw_value
-                .as_ref()
-                .and_then(|raw| raw.get("supported"))
-                .and_then(|supported| supported.as_bool())
-                == Some(false);
+            let unsupported = spec.display_value == "미지원";
             response_specs.insert(
                 spec.spec_key,
                 SpecValue {
                     muted: spec.status != "known" || unsupported,
                     status: spec.status,
-                    raw: spec.raw_value,
                     value: spec.display_value,
                     detail: spec.detail,
                     source_id: spec.source_id,
@@ -1310,7 +1290,7 @@ async fn group_specs(
     ids: &[Uuid],
 ) -> ApiResult<HashMap<Uuid, Vec<SpecRow>>> {
     let rows = sqlx::query_as::<_, SpecRow>(
-        "SELECT device_id, spec_key, status, raw_value, display_value, detail, source_id FROM device_spec_values WHERE device_id = ANY($1)",
+        "SELECT device_id, spec_key, status, display_value, detail, source_id FROM device_spec_values WHERE device_id = ANY($1)",
     )
     .bind(ids)
     .fetch_all(&mut **transaction)

@@ -1,5 +1,4 @@
 use chrono::{DateTime, NaiveDate, Utc};
-use serde_json::Value;
 use uuid::Uuid;
 
 #[derive(sqlx::FromRow)]
@@ -61,7 +60,6 @@ pub struct SpecRow {
     pub device_id: Uuid,
     pub spec_key: String,
     pub status: String,
-    pub raw_value: Option<Value>,
     pub display_value: String,
     pub detail: Option<String>,
     pub source_id: Option<Uuid>,

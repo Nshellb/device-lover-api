@@ -680,12 +680,6 @@ fn validate_write_request(payload: &DeviceWriteRequest, category: &str) -> ApiRe
         )));
     }
     for (key, spec) in &payload.specs {
-        if !matches!(
-            spec.status.as_str(),
-            "known" | "unknown" | "not_disclosed" | "not_applicable"
-        ) {
-            return Err(AppError::Validation(format!("spec {key}: invalid status")));
-        }
         if spec.value.trim().is_empty() {
             return Err(AppError::Validation(format!(
                 "spec {key}: value must not be empty"
@@ -708,9 +702,9 @@ fn validate_write_request(payload: &DeviceWriteRequest, category: &str) -> ApiRe
     }
 
     for config in &payload.configurations {
-        if (config.ram_status == "known") != config.ram_gb.is_some() {
+        if config.ram_gb.is_some_and(|ram_gb| ram_gb <= 0) {
             return Err(AppError::Validation(
-                "configuration ramGb must be present only when ramStatus is known".into(),
+                "configuration ramGb must be positive".into(),
             ));
         }
         if config.storage_gb <= 0 {
@@ -826,15 +820,14 @@ async fn replace_children(
         sqlx::query(
             r#"
             INSERT INTO device_configurations
-                (device_id, label, storage_gb, ram_gb, ram_status, position)
-            VALUES ($1, $2, $3, $4, $5, $6)
+                (device_id, label, storage_gb, ram_gb, position)
+            VALUES ($1, $2, $3, $4, $5)
             "#,
         )
         .bind(device_id)
         .bind(&config.label)
         .bind(config.storage_gb)
         .bind(config.ram_gb)
-        .bind(&config.ram_status)
         .bind(position as i32)
         .execute(&mut **transaction)
         .await
@@ -862,13 +855,12 @@ async fn replace_children(
     for (key, spec) in &payload.specs {
         sqlx::query(
             r#"
-            INSERT INTO device_spec_values (device_id, spec_key, status, display_value, detail)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO device_spec_values (device_id, spec_key, display_value, detail)
+            VALUES ($1, $2, $3, $4)
             "#,
         )
         .bind(device_id)
         .bind(key)
-        .bind(&spec.status)
         .bind(&spec.value)
         .bind(&spec.detail)
         .execute(&mut **transaction)
@@ -980,12 +972,9 @@ async fn load_admin_detail(
         .remove(&device_id)
         .unwrap_or_default()
     {
-        let unsupported = spec.display_value == "미지원";
         response_specs.insert(
             spec.spec_key,
             SpecValue {
-                muted: spec.status != "known" || unsupported,
-                status: spec.status,
                 value: spec.display_value,
                 detail: spec.detail,
                 source_id: spec.source_id.filter(|id| source_ids.contains(id)),
@@ -1155,13 +1144,10 @@ async fn load_details(
             {
                 return Err(AppError::Internal);
             }
-            let unsupported = spec.display_value == "미지원";
             response_specs.insert(
                 spec.spec_key,
                 SpecValue {
-                    muted: spec.status != "known" || unsupported,
-                    status: spec.status,
-                    value: spec.display_value,
+                        value: spec.display_value,
                     detail: spec.detail,
                     source_id: spec.source_id,
                 },
@@ -1218,7 +1204,7 @@ async fn group_configurations(
     ids: &[Uuid],
 ) -> ApiResult<HashMap<Uuid, Vec<DeviceConfiguration>>> {
     let rows = sqlx::query_as::<_, ConfigurationRow>(
-        "SELECT id, device_id, label, storage_gb, ram_gb, ram_status FROM device_configurations WHERE device_id = ANY($1) ORDER BY device_id, position",
+        "SELECT id, device_id, label, storage_gb, ram_gb FROM device_configurations WHERE device_id = ANY($1) ORDER BY device_id, position",
     )
     .bind(ids)
     .fetch_all(&mut **transaction)
@@ -1233,7 +1219,6 @@ async fn group_configurations(
                 label: row.label,
                 storage_gb: row.storage_gb,
                 ram_gb: row.ram_gb,
-                ram_status: row.ram_status,
             });
     }
     Ok(result)
@@ -1290,7 +1275,7 @@ async fn group_specs(
     ids: &[Uuid],
 ) -> ApiResult<HashMap<Uuid, Vec<SpecRow>>> {
     let rows = sqlx::query_as::<_, SpecRow>(
-        "SELECT device_id, spec_key, status, display_value, detail, source_id FROM device_spec_values WHERE device_id = ANY($1)",
+        "SELECT device_id, spec_key, display_value, detail, source_id FROM device_spec_values WHERE device_id = ANY($1)",
     )
     .bind(ids)
     .fetch_all(&mut **transaction)

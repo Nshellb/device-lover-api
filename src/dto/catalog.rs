@@ -86,7 +86,6 @@ pub struct DeviceConfiguration {
     pub label: String,
     pub storage_gb: i32,
     pub ram_gb: Option<i32>,
-    pub ram_status: String,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -112,10 +111,8 @@ pub struct DeviceSource {
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SpecValue {
-    pub status: String,
     pub value: String,
     pub detail: Option<String>,
-    pub muted: bool,
     pub source_id: Option<Uuid>,
 }
 
@@ -154,7 +151,6 @@ pub struct HomeResponse {
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SpecInput {
-    pub status: String,
     pub value: String,
     pub detail: Option<String>,
 }
@@ -181,7 +177,6 @@ pub struct ConfigurationInput {
     pub label: String,
     pub storage_gb: i32,
     pub ram_gb: Option<i32>,
-    pub ram_status: String,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]

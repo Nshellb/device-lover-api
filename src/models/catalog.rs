@@ -32,7 +32,6 @@ pub struct ConfigurationRow {
     pub label: String,
     pub storage_gb: i32,
     pub ram_gb: Option<i32>,
-    pub ram_status: String,
 }
 
 #[derive(sqlx::FromRow)]
@@ -59,7 +58,6 @@ pub struct SourceRow {
 pub struct SpecRow {
     pub device_id: Uuid,
     pub spec_key: String,
-    pub status: String,
     pub display_value: String,
     pub detail: Option<String>,
     pub source_id: Option<Uuid>,

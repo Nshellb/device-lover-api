@@ -13,6 +13,7 @@ pub struct DeviceRow {
     pub market_code: String,
     pub summary_variant_label: Option<String>,
     pub image_url: Option<String>,
+    pub image_alt: Option<String>,
     pub launch_video_url: Option<String>,
     pub publication_status: String,
     pub updated_at: DateTime<Utc>,
@@ -52,6 +53,17 @@ pub struct PowerRow {
     pub wired_note: Option<String>,
     pub wireless_w: Option<f64>,
     pub wireless_note: Option<String>,
+}
+
+#[derive(sqlx::FromRow)]
+pub struct DeviceSoftwareRow {
+    pub device_id: Uuid,
+    pub version_id: Uuid,
+    pub category: String,
+    pub value: String,
+    pub label: String,
+    pub is_launch: bool,
+    pub note: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]

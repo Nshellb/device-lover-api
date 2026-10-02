@@ -15,12 +15,12 @@ use crate::catalog::{
 };
 use crate::dto::{
     AliasDetail, AliasInput, CatalogBrand, CatalogSchemaResponse, ComparisonResponse,
-    DeviceColor, DeviceConfiguration, DeviceDetail, DeviceDimension, DeviceListResponse, DeviceMaterial, DevicePower, DeviceSource,
+    DeviceColor, DeviceConfiguration, DeviceDetail, DeviceDimension, DeviceListResponse, DeviceMaterial, DevicePower, DeviceSoftware, DeviceSource,
     DeviceSummary, DeviceWriteRequest, HomeResponse, Pagination, SourceInput, SpecValue,
 };
 use crate::error::{ApiResult, AppError};
 use crate::models::{
-    AliasRow, ColorRow, ConfigurationRow, DeviceRow, DimensionRow, MaterialRow, PowerRow, SourceRow,
+    AliasRow, ColorRow, ConfigurationRow, DeviceRow, DeviceSoftwareRow, DimensionRow, MaterialRow, PowerRow, SourceRow,
     SpecRow,
 };
 use crate::state::AppState;
@@ -28,7 +28,7 @@ use crate::state::AppState;
 const PUBLIC_DEVICE_SELECT: &str = r#"
     SELECT dm.id, dm.slug, dm.category, b.name AS brand, b.slug AS brand_slug,
            dm.name, dm.release_date, dm.market_code, dm.summary_variant_label,
-           dm.image_url, dm.launch_video_url, dm.publication_status, dm.updated_at
+           dm.image_url, dm.image_alt, dm.launch_video_url, dm.publication_status, dm.updated_at
       FROM device_models dm
       JOIN brands b ON b.id = dm.brand_id
      WHERE dm.publication_status = 'published'
@@ -36,7 +36,7 @@ const PUBLIC_DEVICE_SELECT: &str = r#"
        AND dm.release_date IS NOT NULL
        AND dm.release_date <= $1
        AND (SELECT count(*) FROM device_spec_values sv
-             WHERE sv.device_id = dm.id AND sv.spec_key NOT LIKE 'sub%') = 26
+             WHERE sv.device_id = dm.id AND sv.spec_key NOT LIKE 'sub%') = 28
        AND EXISTS (
            SELECT 1 FROM device_sources ds
             WHERE ds.device_id = dm.id AND ds.is_primary AND ds.checked_at IS NOT NULL
@@ -389,7 +389,7 @@ pub(crate) async fn list_admin_devices(
         r#"
         SELECT dm.id, dm.slug, dm.category, b.name AS brand, b.slug AS brand_slug,
                dm.name, dm.release_date, dm.market_code, dm.summary_variant_label,
-               dm.image_url, dm.launch_video_url, dm.publication_status, dm.updated_at
+               dm.image_url, dm.image_alt, dm.launch_video_url, dm.publication_status, dm.updated_at
           FROM device_models dm
           JOIN brands b ON b.id = dm.brand_id
          WHERE dm.category = 'smartphone'
@@ -502,8 +502,9 @@ pub(crate) async fn create_device(
         r#"
         INSERT INTO device_models
             (brand_id, category, slug, name, market_code, release_date,
-             summary_variant_label, image_url, launch_video_url, publication_status, verified_at)
-        VALUES ($1, 'smartphone', $2, $3, 'KR', $4, $5, $6, $7, $8, $9)
+             summary_variant_label, image_url, launch_video_url, publication_status, verified_at,
+             image_alt)
+        VALUES ($1, 'smartphone', $2, $3, 'KR', $4, $5, $6, $7, $8, $9, $10)
         RETURNING id
         "#,
     )
@@ -516,6 +517,7 @@ pub(crate) async fn create_device(
     .bind(&payload.launch_video_url)
     .bind(&payload.publication_status)
     .bind(verified_at)
+    .bind(payload.image_alt.as_deref().map(str::trim).filter(|alt| !alt.is_empty()))
     .fetch_one(&mut *transaction)
     .await
     .map_err(map_write_db_error)?;
@@ -619,7 +621,7 @@ pub(crate) async fn update_device(
         UPDATE device_models
            SET brand_id = $2, slug = $3, name = $4, release_date = $5,
                summary_variant_label = $6, image_url = $7, launch_video_url = $8,
-               publication_status = $9, verified_at = $10, updated_at = now()
+               publication_status = $9, verified_at = $10, image_alt = $11, updated_at = now()
          WHERE id = $1
         "#,
     )
@@ -633,6 +635,7 @@ pub(crate) async fn update_device(
     .bind(&payload.launch_video_url)
     .bind(&payload.publication_status)
     .bind(verified_at)
+    .bind(payload.image_alt.as_deref().map(str::trim).filter(|alt| !alt.is_empty()))
     .execute(&mut *transaction)
     .await
     .map_err(map_write_db_error)?;
@@ -725,6 +728,18 @@ fn validate_write_request(payload: &DeviceWriteRequest, category: &str) -> ApiRe
         }
     }
 
+    if payload.software.len() > 40 {
+        return Err(AppError::Validation("software must have at most 40 entries".into()));
+    }
+    {
+        let mut seen = HashSet::new();
+        if !payload.software.iter().all(|item| seen.insert(item.version_id)) {
+            return Err(AppError::Validation("software versions must be unique".into()));
+        }
+    }
+    if payload.image_alt.as_deref().is_some_and(|alt| alt.trim().chars().count() > 200) {
+        return Err(AppError::Validation("imageAlt must be at most 200 characters".into()));
+    }
     if payload.materials.len() > 20 {
         return Err(AppError::Validation("materials must have at most 20 entries".into()));
     }
@@ -840,6 +855,7 @@ async fn replace_children(
         "device_sources",
         "device_configurations",
         "device_dimensions",
+        "device_software",
         "device_materials",
         "device_power",
         "device_colors",
@@ -898,6 +914,38 @@ async fn replace_children(
         .execute(&mut **transaction)
         .await
         .map_err(map_write_db_error)?;
+    }
+
+    for (position, item) in payload.software.iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO device_software (device_id, version_id, position, is_launch, note) VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(device_id)
+        .bind(item.version_id)
+        .bind(position as i32)
+        .bind(item.is_launch)
+        .bind(item.note.as_deref().map(str::trim).filter(|note| !note.is_empty()))
+        .execute(&mut **transaction)
+        .await
+        .map_err(map_write_db_error)?;
+    }
+    let launch_conflict = sqlx::query_scalar::<_, i64>(
+        r#"
+        SELECT count(*) FROM (
+            SELECT v.category
+              FROM device_software ds JOIN software_versions v ON v.id = ds.version_id
+             WHERE ds.device_id = $1 AND ds.is_launch
+             GROUP BY v.category HAVING count(*) > 1
+        ) t
+        "#,
+    )
+    .bind(device_id)
+    .fetch_one(&mut **transaction)
+    .await?;
+    if launch_conflict > 0 {
+        return Err(AppError::Validation(
+            "only one launch version per category (os, ux) is allowed".into(),
+        ));
     }
 
     for (position, material) in payload.materials.iter().enumerate() {
@@ -1059,7 +1107,7 @@ async fn load_admin_detail(
         r#"
         SELECT dm.id, dm.slug, dm.category, b.name AS brand, b.slug AS brand_slug,
                dm.name, dm.release_date, dm.market_code, dm.summary_variant_label,
-               dm.image_url, dm.launch_video_url, dm.publication_status, dm.updated_at
+               dm.image_url, dm.image_alt, dm.launch_video_url, dm.publication_status, dm.updated_at
           FROM device_models dm
           JOIN brands b ON b.id = dm.brand_id
          WHERE dm.id = $1
@@ -1107,6 +1155,10 @@ async fn load_admin_detail(
         .await?
         .remove(&device_id)
         .unwrap_or_default();
+    let software = group_software(transaction, &ids)
+        .await?
+        .remove(&device_id)
+        .unwrap_or_default();
     let materials = group_materials(transaction, &ids)
         .await?
         .remove(&device_id)
@@ -1139,6 +1191,7 @@ async fn load_admin_detail(
         configurations,
         dimensions,
         materials,
+        software,
         power,
         colors,
         source_url,
@@ -1240,6 +1293,7 @@ async fn load_details(
     let mut colors = group_colors(transaction, ids).await?;
     let mut dimensions = group_dimensions(transaction, ids).await?;
     let mut materials = group_materials(transaction, ids).await?;
+    let mut software = group_software(transaction, ids).await?;
     let mut powers = group_power(transaction, ids).await?;
     let mut sources = group_sources(transaction, ids).await?;
     let mut specs = group_specs(transaction, ids).await?;
@@ -1307,6 +1361,7 @@ async fn load_details(
             configurations: configurations.remove(id).unwrap_or_default(),
             dimensions: dimensions.remove(id).unwrap_or_default(),
             materials: materials.remove(id).unwrap_or_default(),
+            software: software.remove(id).unwrap_or_default(),
             power: powers.remove(id).ok_or(AppError::Internal)?,
             colors: colors.remove(id).unwrap_or_default(),
             source_url,
@@ -1335,6 +1390,35 @@ async fn load_aliases(
     .fetch_all(&mut **transaction)
     .await?;
     Ok(group_by_device(rows, |row| row.device_id))
+}
+
+async fn group_software(
+    transaction: &mut Transaction<'_, Postgres>,
+    ids: &[Uuid],
+) -> ApiResult<HashMap<Uuid, Vec<DeviceSoftware>>> {
+    let rows = sqlx::query_as::<_, DeviceSoftwareRow>(
+        r#"
+        SELECT ds.device_id, ds.version_id, v.category, v.value, v.label, ds.is_launch, ds.note
+          FROM device_software ds JOIN software_versions v ON v.id = ds.version_id
+         WHERE ds.device_id = ANY($1)
+         ORDER BY ds.device_id, ds.position
+        "#,
+    )
+    .bind(ids)
+    .fetch_all(&mut **transaction)
+    .await?;
+    let mut result = HashMap::<Uuid, Vec<DeviceSoftware>>::new();
+    for row in rows {
+        result.entry(row.device_id).or_default().push(DeviceSoftware {
+            version_id: row.version_id,
+            category: row.category,
+            value: row.value,
+            label: row.label,
+            is_launch: row.is_launch,
+            note: row.note,
+        });
+    }
+    Ok(result)
 }
 
 async fn group_materials(
@@ -1524,6 +1608,7 @@ fn summary_from_row(row: &DeviceRow, aliases: Option<&Vec<AliasRow>>) -> DeviceS
             .map(|alias| alias.value.clone())
             .collect(),
         image_url: row.image_url.clone(),
+        image_alt: row.image_alt.clone(),
         publication_status: row.publication_status.clone(),
     }
 }

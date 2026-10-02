@@ -49,6 +49,7 @@ pub struct DeviceSummary {
     pub aliases: Vec<String>,
     pub model_numbers: Vec<String>,
     pub image_url: Option<String>,
+    pub image_alt: Option<String>,
     pub publication_status: String,
 }
 
@@ -65,6 +66,8 @@ pub struct DeviceDetail {
     pub dimensions: Vec<DeviceDimension>,
     pub materials: Vec<DeviceMaterial>,
     pub power: DevicePower,
+    /// Operating system / UX versions: the launch version plus upgrade targets.
+    pub software: Vec<DeviceSoftware>,
     pub colors: Vec<DeviceColor>,
     pub source_url: String,
     pub sources: Vec<DeviceSource>,
@@ -113,6 +116,27 @@ pub struct DeviceMaterial {
 }
 
 pub type MaterialInput = DeviceMaterial;
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceSoftware {
+    pub version_id: Uuid,
+    /// "os" or "ux"
+    pub category: String,
+    pub value: String,
+    pub label: String,
+    /// True for the version the device launched with; false for upgrade targets.
+    pub is_launch: bool,
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SoftwareInput {
+    pub version_id: Uuid,
+    pub is_launch: bool,
+    pub note: Option<String>,
+}
 
 /// Battery and charging as numbers. `null` = unknown; charging `0` = not supported.
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
@@ -253,6 +277,8 @@ pub struct DeviceWriteRequest {
     pub release_date: NaiveDate,
     pub variant: Option<String>,
     pub image_url: Option<String>,
+    #[serde(default)]
+    pub image_alt: Option<String>,
     pub launch_video_url: Option<String>,
     pub publication_status: String,
     pub aliases: Vec<AliasInput>,
@@ -262,6 +288,8 @@ pub struct DeviceWriteRequest {
     #[serde(default)]
     pub materials: Vec<MaterialInput>,
     pub power: PowerInput,
+    #[serde(default)]
+    pub software: Vec<SoftwareInput>,
     pub colors: Vec<ColorInput>,
     #[schema(value_type = Object)]
     pub specs: HashMap<String, SpecInput>,

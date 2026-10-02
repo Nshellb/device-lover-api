@@ -10,6 +10,7 @@ pub mod health;
 pub mod popularity;
 pub mod route_misses;
 pub mod users;
+pub mod software_versions;
 pub mod wireless_technologies;
 
 pub fn router() -> Router<AppState> {
@@ -21,6 +22,7 @@ pub fn router() -> Router<AppState> {
         .merge(popularity::router())
         .merge(route_misses::router())
         .merge(users::router())
+        .merge(software_versions::router())
         .merge(wireless_technologies::router())
         .merge(auth::router())
 }

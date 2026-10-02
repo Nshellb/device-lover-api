@@ -11,7 +11,8 @@ use uuid::Uuid;
 
 use crate::catalog::{
     MAX_COMPARISON_DEVICES, SCHEMA_VERSION, expand_search_synonyms, normalize_route_identifier,
-    normalize_search_term, spec_keys_are_valid, spec_keys_for_category, specification_sections,
+    normalize_search_term, search_keys, spec_keys_are_valid, spec_keys_for_category,
+    specification_sections,
 };
 use crate::dto::{
     AliasDetail, AliasInput, CatalogBrand, CatalogSchemaResponse, ComparisonResponse,
@@ -24,6 +25,13 @@ use crate::models::{
     SpecRow,
 };
 use crate::state::AppState;
+
+// True when any search key bound as `$2` (text[]) is a substring of the
+// identifier row `di`. The patterns are built once as an InitPlan, so this
+// stays a single-pass filter (no per-row join). Search keys only ever hold
+// alphanumerics, ',' and '+', so no LIKE escaping is needed.
+const SEARCH_KEY_MATCH: &str = "di.search_key LIKE ANY(ARRAY(\
+     SELECT '%' || q.term || '%' FROM unnest($2::text[]) AS q(term)))";
 
 const PUBLIC_DEVICE_SELECT: &str = r#"
     SELECT dm.id, dm.slug, dm.category, b.name AS brand, b.slug AS brand_slug,
@@ -142,16 +150,16 @@ pub(crate) async fn list_devices(
         r#"
         SELECT count(*)
           FROM ({PUBLIC_DEVICE_SELECT}) pd
-         WHERE ($2 = '' OR EXISTS (
+         WHERE (cardinality($2::text[]) = 0 OR EXISTS (
              SELECT 1 FROM device_identifiers di
-              WHERE di.device_id = pd.id AND position($2 IN di.search_key) > 0
+              WHERE di.device_id = pd.id AND {SEARCH_KEY_MATCH}
          ))
            AND ($3::text IS NULL OR pd.brand_slug = $3)
            AND pd.category = $4
         "#
     ))
     .bind(as_of)
-    .bind(&query.search_key)
+    .bind(&query.search_keys)
     .bind(&query.brand)
     .bind(&query.category)
     .fetch_one(&mut *transaction)
@@ -161,28 +169,31 @@ pub(crate) async fn list_devices(
         r#"
         SELECT pd.*
           FROM ({PUBLIC_DEVICE_SELECT}) pd
-         WHERE ($2 = '' OR EXISTS (
+         WHERE (cardinality($2::text[]) = 0 OR EXISTS (
              SELECT 1 FROM device_identifiers di
-              WHERE di.device_id = pd.id AND position($2 IN di.search_key) > 0
+              WHERE di.device_id = pd.id AND {SEARCH_KEY_MATCH}
          ))
            AND ($3::text IS NULL OR pd.brand_slug = $3)
            AND pd.category = $7
          ORDER BY
-           CASE WHEN $2 <> '' AND $6 = 'relevance' THEN (
+           CASE WHEN cardinality($2::text[]) > 0 AND $6 = 'relevance' THEN (
                SELECT min(CASE
-                   WHEN di.search_key = $2 THEN 0
-                   WHEN di.search_key LIKE $2 || '%' THEN 1
+                   WHEN di.search_key = ANY($2::text[]) THEN 0
+                   WHEN EXISTS (
+                       SELECT 1 FROM unnest($2::text[]) AS q(term)
+                        WHERE di.search_key LIKE q.term || '%'
+                   ) THEN 1
                    ELSE 2
                END)
                  FROM device_identifiers di
-                WHERE di.device_id = pd.id AND position($2 IN di.search_key) > 0
+                WHERE di.device_id = pd.id AND {SEARCH_KEY_MATCH}
            ) END ASC NULLS LAST,
            pd.release_date DESC, pd.name COLLATE "C", pd.slug
          LIMIT $4 OFFSET $5
         "#
     ))
     .bind(as_of)
-    .bind(&query.search_key)
+    .bind(&query.search_keys)
     .bind(&query.brand)
     .bind(i64::from(query.page_size))
     .bind(i64::from((query.page - 1) * query.page_size))
@@ -1777,7 +1788,7 @@ impl AdminDeviceListQuery {
 }
 
 struct ListQuery {
-    search_key: String,
+    search_keys: Vec<String>,
     brand: Option<String>,
     category: String,
     page: u32,
@@ -1810,7 +1821,7 @@ impl ListQuery {
                 "q must be at most 100 characters".into(),
             ));
         }
-        let search_key = normalize_search_term(&q);
+        let search_keys = search_keys(&q);
         let category = values
             .remove("category")
             .unwrap_or_else(|| "smartphone".into());
@@ -1826,7 +1837,7 @@ impl ListQuery {
         let page = parse_bounded_u32(values.remove("page"), "page", 1, 10_000, 1)?;
         let page_size = parse_bounded_u32(values.remove("page_size"), "page_size", 1, 100, 20)?;
         let sort = values.remove("sort").unwrap_or_else(|| {
-            if search_key.is_empty() {
+            if search_keys.is_empty() {
                 "release_date_desc".into()
             } else {
                 "relevance".into()
@@ -1839,7 +1850,7 @@ impl ListQuery {
         }
 
         Ok(Self {
-            search_key,
+            search_keys,
             brand,
             category,
             page,

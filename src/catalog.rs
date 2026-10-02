@@ -145,9 +145,16 @@ pub fn normalize_route_identifier(value: &str) -> Result<String, AppError> {
 // carries the Korean spelling. Expanding to the English form here means any
 // current or future device under that product line is searchable by either
 // spelling, with no per-device alias data to add or keep up to date.
-const SEARCH_TERM_SYNONYMS: [(&str, &str); 4] = [
+//
+// Replacement runs in order, so the bare syllables "폴"/"플" (what a user has
+// typed so far on the way to 폴드/플립) must stay after their full words.
+const SEARCH_TERM_SYNONYMS: [(&str, &str); 8] = [
     ("아이폰", "iphone"),
     ("갤럭시", "galaxy"),
+    ("폴드", "fold"),
+    ("플립", "flip"),
+    ("폴", "fold"),
+    ("플", "flip"),
     ("캐논", "canon"),
     ("삼성", "samsung"),
 ];
@@ -160,6 +167,33 @@ pub fn expand_search_synonyms(value: &str) -> String {
         }
     }
     result
+}
+
+// Hangul initial-consonant (초성) shortcuts for foldables/flips. A single
+// substring can't cover both "fold" and "flip", so a query made only of these
+// jamo expands to several alternative keys instead of one.
+const SEARCH_INITIAL_ALTERNATIVES: [(&str, &[&str]); 3] = [
+    ("ㅍ", &["fold", "flip"]),
+    ("ㅍㄷ", &["fold"]),
+    ("ㅍㄹ", &["flip"]),
+];
+
+// Alternative search keys for a raw query; a device matches if any of them is
+// a substring of one of its identifiers. Empty means "no search filter".
+pub fn search_keys(value: &str) -> Vec<String> {
+    let key = normalize_search_term(value);
+    if key.is_empty() {
+        return Vec::new();
+    }
+    for (initials, alternatives) in SEARCH_INITIAL_ALTERNATIVES {
+        if key == normalize_search_term(initials) {
+            return alternatives
+                .iter()
+                .map(|alternative| (*alternative).to_string())
+                .collect();
+        }
+    }
+    vec![key]
 }
 
 pub fn normalize_search_term(value: &str) -> String {
@@ -296,7 +330,23 @@ mod tests {
         assert_eq!(normalize_search_term("아이폰"), "iphone");
         assert_eq!(normalize_search_term("아이폰 16"), "iphone16");
         assert_eq!(normalize_search_term("갤럭시 S24"), "galaxys24");
+        assert_eq!(normalize_search_term("폴드"), "fold");
+        assert_eq!(normalize_search_term("갤럭시 Z 폴드7"), "galaxyzfold7");
+        assert_eq!(normalize_search_term("플립"), "flip");
+        assert_eq!(normalize_search_term("갤럭시 Z 플립7"), "galaxyzflip7");
+        assert_eq!(normalize_search_term("폴"), "fold");
+        assert_eq!(normalize_search_term("플"), "flip");
         assert_eq!(expand_search_synonyms("아이폰 16 찾기"), "iphone 16 찾기");
+    }
+
+    #[test]
+    fn search_keys_expand_fold_flip_initials() {
+        assert_eq!(search_keys("ㅍ"), vec!["fold", "flip"]);
+        assert_eq!(search_keys(" ㅍㄷ "), vec!["fold"]);
+        assert_eq!(search_keys("ㅍㄹ"), vec!["flip"]);
+        assert_eq!(search_keys("폴드"), vec!["fold"]);
+        assert_eq!(search_keys("ㅍ7"), vec![normalize_search_term("ㅍ7")]);
+        assert!(search_keys("  ").is_empty());
     }
 
     #[test]

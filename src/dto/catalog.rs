@@ -63,6 +63,8 @@ pub struct DeviceDetail {
     /// Up to 3 entries (e.g. 펼친 상태 / 접은 상태), each with separate numeric
     /// width/height/depth in millimetres so they can be searched individually.
     pub dimensions: Vec<DeviceDimension>,
+    pub materials: Vec<DeviceMaterial>,
+    pub power: DevicePower,
     pub colors: Vec<DeviceColor>,
     pub source_url: String,
     pub sources: Vec<DeviceSource>,
@@ -102,6 +104,30 @@ pub struct DimensionInput {
     pub note: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceMaterial {
+    pub part: String,
+    pub material: String,
+    pub note: Option<String>,
+}
+
+pub type MaterialInput = DeviceMaterial;
+
+/// Battery and charging as numbers. `null` = unknown; charging `0` = not supported.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DevicePower {
+    pub battery_mah: Option<i32>,
+    pub battery_note: Option<String>,
+    pub wired_w: Option<f64>,
+    pub wired_note: Option<String>,
+    pub wireless_w: Option<f64>,
+    pub wireless_note: Option<String>,
+}
+
+pub type PowerInput = DevicePower;
+
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceConfiguration {
@@ -109,6 +135,10 @@ pub struct DeviceConfiguration {
     pub label: String,
     pub storage_gb: i32,
     pub ram_gb: Option<i32>,
+    /// Launch price in KRW; null when unknown.
+    pub price_krw: Option<i32>,
+    /// Launch price in USD; null when unknown.
+    pub price_usd: Option<f64>,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -200,6 +230,8 @@ pub struct ConfigurationInput {
     pub label: String,
     pub storage_gb: i32,
     pub ram_gb: Option<i32>,
+    pub price_krw: Option<i32>,
+    pub price_usd: Option<f64>,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -227,6 +259,9 @@ pub struct DeviceWriteRequest {
     pub sources: Vec<SourceInput>,
     pub configurations: Vec<ConfigurationInput>,
     pub dimensions: Vec<DimensionInput>,
+    #[serde(default)]
+    pub materials: Vec<MaterialInput>,
+    pub power: PowerInput,
     pub colors: Vec<ColorInput>,
     #[schema(value_type = Object)]
     pub specs: HashMap<String, SpecInput>,

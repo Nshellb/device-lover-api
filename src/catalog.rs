@@ -6,7 +6,7 @@ use crate::error::AppError;
 pub const SCHEMA_VERSION: u8 = 1;
 pub const MAX_COMPARISON_DEVICES: usize = 3;
 
-pub const SPEC_KEYS: [&str; 25] = [
+pub const SPEC_KEYS: [&str; 26] = [
     "operatingSystem",
     "weight",
     "storage",
@@ -15,6 +15,9 @@ pub const SPEC_KEYS: [&str; 25] = [
     "displaySize",
     "displayResolution",
     "refreshRate",
+    "displayPeakBrightness",
+    "displayLamination",
+    "displayAntiReflective",
     "displayFeatures",
     "processor",
     "memory",
@@ -25,24 +28,25 @@ pub const SPEC_KEYS: [&str; 25] = [
     "digitalZoom",
     "frontCamera",
     "videoRecording",
-    "batteryCapacity",
     "videoPlayback",
-    "fastCharging",
-    "wirelessCharging",
     "wireless",
     "biometrics",
     "waterResistance",
+    "sim",
 ];
 
 /// Foldables can carry up to two extra displays besides the main one. Each
 /// sub display is all-or-none (every key of its group) and sub display 2
 /// requires sub display 1.
-pub const SUB_DISPLAY_KEY_GROUPS: [[&str; 5]; 2] = [
+pub const SUB_DISPLAY_KEY_GROUPS: [[&str; 8]; 2] = [
     [
         "sub1DisplayPanel",
         "sub1DisplaySize",
         "sub1DisplayResolution",
         "sub1RefreshRate",
+        "sub1PeakBrightness",
+        "sub1DisplayLamination",
+        "sub1DisplayAntiReflective",
         "sub1DisplayFeatures",
     ],
     [
@@ -50,6 +54,9 @@ pub const SUB_DISPLAY_KEY_GROUPS: [[&str; 5]; 2] = [
         "sub2DisplaySize",
         "sub2DisplayResolution",
         "sub2RefreshRate",
+        "sub2PeakBrightness",
+        "sub2DisplayLamination",
+        "sub2DisplayAntiReflective",
         "sub2DisplayFeatures",
     ],
 ];

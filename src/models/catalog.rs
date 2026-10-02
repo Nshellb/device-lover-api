@@ -36,12 +36,33 @@ pub struct DimensionRow {
 }
 
 #[derive(sqlx::FromRow)]
+pub struct MaterialRow {
+    pub device_id: Uuid,
+    pub part: String,
+    pub material: String,
+    pub note: Option<String>,
+}
+
+#[derive(sqlx::FromRow)]
+pub struct PowerRow {
+    pub device_id: Uuid,
+    pub battery_mah: Option<i32>,
+    pub battery_note: Option<String>,
+    pub wired_w: Option<f64>,
+    pub wired_note: Option<String>,
+    pub wireless_w: Option<f64>,
+    pub wireless_note: Option<String>,
+}
+
+#[derive(sqlx::FromRow)]
 pub struct ConfigurationRow {
     pub id: Uuid,
     pub device_id: Uuid,
     pub label: String,
     pub storage_gb: i32,
     pub ram_gb: Option<i32>,
+    pub price_krw: Option<i32>,
+    pub price_usd: Option<f64>,
 }
 
 #[derive(sqlx::FromRow)]

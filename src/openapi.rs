@@ -65,6 +65,8 @@
         crate::dto::DeviceConfiguration,
         crate::dto::DeviceDimension,
         crate::dto::DimensionInput,
+        crate::dto::DeviceMaterial,
+        crate::dto::DevicePower,
         crate::dto::DeviceColor,
         crate::dto::DeviceSource,
         crate::dto::SpecValue,

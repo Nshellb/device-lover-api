@@ -15,11 +15,14 @@ use crate::catalog::{
 };
 use crate::dto::{
     AliasDetail, AliasInput, CatalogBrand, CatalogSchemaResponse, ComparisonResponse,
-    DeviceColor, DeviceConfiguration, DeviceDetail, DeviceDimension, DeviceListResponse, DeviceSource,
+    DeviceColor, DeviceConfiguration, DeviceDetail, DeviceDimension, DeviceListResponse, DeviceMaterial, DevicePower, DeviceSource,
     DeviceSummary, DeviceWriteRequest, HomeResponse, Pagination, SourceInput, SpecValue,
 };
 use crate::error::{ApiResult, AppError};
-use crate::models::{AliasRow, ColorRow, ConfigurationRow, DeviceRow, DimensionRow, SourceRow, SpecRow};
+use crate::models::{
+    AliasRow, ColorRow, ConfigurationRow, DeviceRow, DimensionRow, MaterialRow, PowerRow, SourceRow,
+    SpecRow,
+};
 use crate::state::AppState;
 
 const PUBLIC_DEVICE_SELECT: &str = r#"
@@ -33,7 +36,7 @@ const PUBLIC_DEVICE_SELECT: &str = r#"
        AND dm.release_date IS NOT NULL
        AND dm.release_date <= $1
        AND (SELECT count(*) FROM device_spec_values sv
-             WHERE sv.device_id = dm.id AND sv.spec_key NOT LIKE 'sub%') = 25
+             WHERE sv.device_id = dm.id AND sv.spec_key NOT LIKE 'sub%') = 26
        AND EXISTS (
            SELECT 1 FROM device_sources ds
             WHERE ds.device_id = dm.id AND ds.is_primary AND ds.checked_at IS NOT NULL
@@ -722,7 +725,44 @@ fn validate_write_request(payload: &DeviceWriteRequest, category: &str) -> ApiRe
         }
     }
 
+    if payload.materials.len() > 20 {
+        return Err(AppError::Validation("materials must have at most 20 entries".into()));
+    }
+    for material in &payload.materials {
+        for (name, value) in [("part", &material.part), ("material", &material.material)] {
+            if value.trim().is_empty() || value.chars().count() > 40 {
+                return Err(AppError::Validation(format!(
+                    "material {name} must be 1 to 40 characters"
+                )));
+            }
+        }
+    }
+    let power = &payload.power;
+    if power.battery_mah.is_some_and(|value| value <= 0)
+        || [power.wired_w, power.wireless_w]
+            .iter()
+            .flatten()
+            .any(|value| !value.is_finite() || *value < 0.0)
+    {
+        return Err(AppError::Validation(
+            "power values must be positive (charging may be 0 for unsupported)".into(),
+        ));
+    }
+
     for config in &payload.configurations {
+        if config
+            .price_usd
+            .is_some_and(|price| !price.is_finite() || price <= 0.0)
+        {
+            return Err(AppError::Validation(
+                "configuration priceUsd must be positive".into(),
+            ));
+        }
+        if config.price_krw.is_some_and(|price| price <= 0) {
+            return Err(AppError::Validation(
+                "configuration priceKrw must be positive".into(),
+            ));
+        }
         if config.ram_gb.is_some_and(|ram_gb| ram_gb <= 0) {
             return Err(AppError::Validation(
                 "configuration ramGb must be positive".into(),
@@ -800,6 +840,8 @@ async fn replace_children(
         "device_sources",
         "device_configurations",
         "device_dimensions",
+        "device_materials",
+        "device_power",
         "device_colors",
         "device_spec_values",
     ] {
@@ -842,19 +884,56 @@ async fn replace_children(
         sqlx::query(
             r#"
             INSERT INTO device_configurations
-                (device_id, label, storage_gb, ram_gb, position)
-            VALUES ($1, $2, $3, $4, $5)
+                (device_id, label, storage_gb, ram_gb, price_krw, price_usd, position)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             "#,
         )
         .bind(device_id)
         .bind(&config.label)
         .bind(config.storage_gb)
         .bind(config.ram_gb)
+        .bind(config.price_krw)
+        .bind(config.price_usd)
         .bind(position as i32)
         .execute(&mut **transaction)
         .await
         .map_err(map_write_db_error)?;
     }
+
+    for (position, material) in payload.materials.iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO device_materials (device_id, position, part, material, note) VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(device_id)
+        .bind(position as i32)
+        .bind(material.part.trim())
+        .bind(material.material.trim())
+        .bind(material.note.as_deref().map(str::trim).filter(|note| !note.is_empty()))
+        .execute(&mut **transaction)
+        .await
+        .map_err(map_write_db_error)?;
+    }
+
+    let clean = |note: &Option<String>| -> Option<String> {
+        note.as_deref().map(str::trim).filter(|note| !note.is_empty()).map(str::to_string)
+    };
+    sqlx::query(
+        r#"
+        INSERT INTO device_power
+            (device_id, battery_mah, battery_note, wired_w, wired_note, wireless_w, wireless_note)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        "#,
+    )
+    .bind(device_id)
+    .bind(payload.power.battery_mah)
+    .bind(clean(&payload.power.battery_note))
+    .bind(payload.power.wired_w)
+    .bind(clean(&payload.power.wired_note))
+    .bind(payload.power.wireless_w)
+    .bind(clean(&payload.power.wireless_note))
+    .execute(&mut **transaction)
+    .await
+    .map_err(map_write_db_error)?;
 
     for (position, dimension) in payload.dimensions.iter().enumerate() {
         sqlx::query(
@@ -1028,6 +1107,14 @@ async fn load_admin_detail(
         .await?
         .remove(&device_id)
         .unwrap_or_default();
+    let materials = group_materials(transaction, &ids)
+        .await?
+        .remove(&device_id)
+        .unwrap_or_default();
+    let power = group_power(transaction, &ids)
+        .await?
+        .remove(&device_id)
+        .ok_or(AppError::Internal)?;
     let dimensions = group_dimensions(transaction, &ids)
         .await?
         .remove(&device_id)
@@ -1051,6 +1138,8 @@ async fn load_admin_detail(
         variant: row.summary_variant_label,
         configurations,
         dimensions,
+        materials,
+        power,
         colors,
         source_url,
         sources: device_sources,
@@ -1150,6 +1239,8 @@ async fn load_details(
     let mut configurations = group_configurations(transaction, ids).await?;
     let mut colors = group_colors(transaction, ids).await?;
     let mut dimensions = group_dimensions(transaction, ids).await?;
+    let mut materials = group_materials(transaction, ids).await?;
+    let mut powers = group_power(transaction, ids).await?;
     let mut sources = group_sources(transaction, ids).await?;
     let mut specs = group_specs(transaction, ids).await?;
     let mut details = Vec::with_capacity(ids.len());
@@ -1215,6 +1306,8 @@ async fn load_details(
             variant: row.summary_variant_label,
             configurations: configurations.remove(id).unwrap_or_default(),
             dimensions: dimensions.remove(id).unwrap_or_default(),
+            materials: materials.remove(id).unwrap_or_default(),
+            power: powers.remove(id).ok_or(AppError::Internal)?,
             colors: colors.remove(id).unwrap_or_default(),
             source_url,
             sources: device_sources,
@@ -1242,6 +1335,55 @@ async fn load_aliases(
     .fetch_all(&mut **transaction)
     .await?;
     Ok(group_by_device(rows, |row| row.device_id))
+}
+
+async fn group_materials(
+    transaction: &mut Transaction<'_, Postgres>,
+    ids: &[Uuid],
+) -> ApiResult<HashMap<Uuid, Vec<DeviceMaterial>>> {
+    let rows = sqlx::query_as::<_, MaterialRow>(
+        "SELECT device_id, part, material, note FROM device_materials WHERE device_id = ANY($1) ORDER BY device_id, position",
+    )
+    .bind(ids)
+    .fetch_all(&mut **transaction)
+    .await?;
+    let mut result = HashMap::<Uuid, Vec<DeviceMaterial>>::new();
+    for row in rows {
+        result.entry(row.device_id).or_default().push(DeviceMaterial {
+            part: row.part,
+            material: row.material,
+            note: row.note,
+        });
+    }
+    Ok(result)
+}
+
+async fn group_power(
+    transaction: &mut Transaction<'_, Postgres>,
+    ids: &[Uuid],
+) -> ApiResult<HashMap<Uuid, DevicePower>> {
+    let rows = sqlx::query_as::<_, PowerRow>(
+        "SELECT device_id, battery_mah, battery_note, wired_w, wired_note, wireless_w, wireless_note FROM device_power WHERE device_id = ANY($1)",
+    )
+    .bind(ids)
+    .fetch_all(&mut **transaction)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            (
+                row.device_id,
+                DevicePower {
+                    battery_mah: row.battery_mah,
+                    battery_note: row.battery_note,
+                    wired_w: row.wired_w,
+                    wired_note: row.wired_note,
+                    wireless_w: row.wireless_w,
+                    wireless_note: row.wireless_note,
+                },
+            )
+        })
+        .collect())
 }
 
 async fn group_dimensions(
@@ -1275,7 +1417,7 @@ async fn group_configurations(
     ids: &[Uuid],
 ) -> ApiResult<HashMap<Uuid, Vec<DeviceConfiguration>>> {
     let rows = sqlx::query_as::<_, ConfigurationRow>(
-        "SELECT id, device_id, label, storage_gb, ram_gb FROM device_configurations WHERE device_id = ANY($1) ORDER BY device_id, position",
+        "SELECT id, device_id, label, storage_gb, ram_gb, price_krw, price_usd FROM device_configurations WHERE device_id = ANY($1) ORDER BY device_id, position",
     )
     .bind(ids)
     .fetch_all(&mut **transaction)
@@ -1290,6 +1432,8 @@ async fn group_configurations(
                 label: row.label,
                 storage_gb: row.storage_gb,
                 ram_gb: row.ram_gb,
+                price_krw: row.price_krw,
+                price_usd: row.price_usd,
             });
     }
     Ok(result)

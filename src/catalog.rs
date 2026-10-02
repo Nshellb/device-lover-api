@@ -6,9 +6,8 @@ use crate::error::AppError;
 pub const SCHEMA_VERSION: u8 = 1;
 pub const MAX_COMPARISON_DEVICES: usize = 3;
 
-pub const SPEC_KEYS: [&str; 26] = [
+pub const SPEC_KEYS: [&str; 25] = [
     "operatingSystem",
-    "dimensions",
     "weight",
     "storage",
     "stylus",
@@ -34,6 +33,57 @@ pub const SPEC_KEYS: [&str; 26] = [
     "biometrics",
     "waterResistance",
 ];
+
+/// Foldables can carry up to two extra displays besides the main one. Each
+/// sub display is all-or-none (every key of its group) and sub display 2
+/// requires sub display 1.
+pub const SUB_DISPLAY_KEY_GROUPS: [[&str; 5]; 2] = [
+    [
+        "sub1DisplayPanel",
+        "sub1DisplaySize",
+        "sub1DisplayResolution",
+        "sub1RefreshRate",
+        "sub1DisplayFeatures",
+    ],
+    [
+        "sub2DisplayPanel",
+        "sub2DisplaySize",
+        "sub2DisplayResolution",
+        "sub2RefreshRate",
+        "sub2DisplayFeatures",
+    ],
+];
+
+/// Whether `provided` (a device's spec keys) is the required set plus a valid
+/// combination of sub display groups.
+/// Optional display name per sub display (e.g. "커버 디스플레이"); only valid
+/// together with its group.
+pub const SUB_DISPLAY_NAME_KEYS: [&str; 2] = ["sub1DisplayName", "sub2DisplayName"];
+
+pub fn spec_keys_are_valid(category: &str, provided: &std::collections::HashSet<&str>) -> bool {
+    let required = spec_keys_for_category(category);
+    if !required.iter().all(|key| provided.contains(key)) {
+        return false;
+    }
+    let mut previous_present = true;
+    let mut extra = 0;
+    for (group, name_key) in SUB_DISPLAY_KEY_GROUPS.iter().zip(SUB_DISPLAY_NAME_KEYS) {
+        let present = group.iter().filter(|key| provided.contains(*key)).count();
+        if present != 0 && present != group.len() {
+            return false;
+        }
+        if present != 0 && !previous_present {
+            return false;
+        }
+        let name_present = usize::from(provided.contains(name_key));
+        if name_present != 0 && present == 0 {
+            return false;
+        }
+        previous_present = present != 0;
+        extra += present + name_present;
+    }
+    provided.len() == required.len() + extra
+}
 
 pub fn spec_keys_for_category(_category: &str) -> &'static [&'static str] {
     &SPEC_KEYS

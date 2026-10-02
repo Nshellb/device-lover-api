@@ -1,0 +1,21 @@
+-- Optional editable name per sub display ("커버 디스플레이" instead of "서브1").
+ALTER TABLE device_spec_values
+    DROP CONSTRAINT device_spec_values_spec_key_check,
+    ADD CONSTRAINT device_spec_values_spec_key_check CHECK (spec_key IN (
+        'operatingSystem', 'dimensions', 'weight', 'storage', 'stylus',
+        'displayPanel', 'displaySize', 'displayResolution', 'refreshRate',
+        'displayFeatures', 'processor', 'memory', 'wiredConnection', 'speakers',
+        'rearCameras', 'telephoto', 'digitalZoom', 'frontCamera', 'videoRecording',
+        'batteryCapacity', 'videoPlayback', 'fastCharging', 'wirelessCharging',
+        'wireless', 'biometrics', 'waterResistance',
+        'sub1DisplayName', 'sub1DisplayPanel', 'sub1DisplaySize', 'sub1DisplayResolution',
+        'sub1RefreshRate', 'sub1DisplayFeatures',
+        'sub2DisplayName', 'sub2DisplayPanel', 'sub2DisplaySize', 'sub2DisplayResolution',
+        'sub2RefreshRate', 'sub2DisplayFeatures'
+    ));
+
+-- Existing foldables' sub1 is the cover display.
+INSERT INTO device_spec_values (device_id, spec_key, display_value)
+SELECT device_id, 'sub1DisplayName', '커버 디스플레이'
+  FROM device_spec_values
+ WHERE spec_key = 'sub1DisplaySize';

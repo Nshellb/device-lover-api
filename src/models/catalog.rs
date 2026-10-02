@@ -26,6 +26,16 @@ pub struct AliasRow {
 }
 
 #[derive(sqlx::FromRow)]
+pub struct DimensionRow {
+    pub device_id: Uuid,
+    pub label: String,
+    pub width_mm: f64,
+    pub height_mm: f64,
+    pub depth_mm: f64,
+    pub note: Option<String>,
+}
+
+#[derive(sqlx::FromRow)]
 pub struct ConfigurationRow {
     pub id: Uuid,
     pub device_id: Uuid,

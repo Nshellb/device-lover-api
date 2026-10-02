@@ -11,15 +11,15 @@ use uuid::Uuid;
 
 use crate::catalog::{
     MAX_COMPARISON_DEVICES, SCHEMA_VERSION, expand_search_synonyms, normalize_route_identifier,
-    normalize_search_term, spec_keys_for_category, specification_sections,
+    normalize_search_term, spec_keys_are_valid, spec_keys_for_category, specification_sections,
 };
 use crate::dto::{
     AliasDetail, AliasInput, CatalogBrand, CatalogSchemaResponse, ComparisonResponse,
-    DeviceColor, DeviceConfiguration, DeviceDetail, DeviceListResponse, DeviceSource,
+    DeviceColor, DeviceConfiguration, DeviceDetail, DeviceDimension, DeviceListResponse, DeviceSource,
     DeviceSummary, DeviceWriteRequest, HomeResponse, Pagination, SourceInput, SpecValue,
 };
 use crate::error::{ApiResult, AppError};
-use crate::models::{AliasRow, ColorRow, ConfigurationRow, DeviceRow, SourceRow, SpecRow};
+use crate::models::{AliasRow, ColorRow, ConfigurationRow, DeviceRow, DimensionRow, SourceRow, SpecRow};
 use crate::state::AppState;
 
 const PUBLIC_DEVICE_SELECT: &str = r#"
@@ -32,7 +32,8 @@ const PUBLIC_DEVICE_SELECT: &str = r#"
        AND dm.verified_at IS NOT NULL
        AND dm.release_date IS NOT NULL
        AND dm.release_date <= $1
-       AND (SELECT count(*) FROM device_spec_values sv WHERE sv.device_id = dm.id) = 26
+       AND (SELECT count(*) FROM device_spec_values sv
+             WHERE sv.device_id = dm.id AND sv.spec_key NOT LIKE 'sub%') = 25
        AND EXISTS (
            SELECT 1 FROM device_sources ds
             WHERE ds.device_id = dm.id AND ds.is_primary AND ds.checked_at IS NOT NULL
@@ -671,12 +672,11 @@ fn validate_write_request(payload: &DeviceWriteRequest, category: &str) -> ApiRe
         ));
     }
 
-    let expected_keys: HashSet<&str> = spec_keys_for_category(category).iter().copied().collect();
+    let expected_count = spec_keys_for_category(category).len();
     let provided_keys: HashSet<&str> = payload.specs.keys().map(String::as_str).collect();
-    if provided_keys != expected_keys {
+    if !spec_keys_are_valid(category, &provided_keys) {
         return Err(AppError::Validation(format!(
-            "specs must include exactly the {} known keys for category {category}",
-            expected_keys.len()
+            "specs must include exactly the {expected_count} known keys for category {category}, plus complete sub display groups"
         )));
     }
     for (key, spec) in &payload.specs {
@@ -698,6 +698,27 @@ fn validate_write_request(payload: &DeviceWriteRequest, category: &str) -> ApiRe
         }
         if alias.value.trim().is_empty() {
             return Err(AppError::Validation("alias value must not be empty".into()));
+        }
+    }
+
+    if payload.dimensions.is_empty() || payload.dimensions.len() > 3 {
+        return Err(AppError::Validation(
+            "dimensions must have between 1 and 3 entries".into(),
+        ));
+    }
+    for dimension in &payload.dimensions {
+        if dimension.label.trim().is_empty() || dimension.label.chars().count() > 40 {
+            return Err(AppError::Validation(
+                "dimension label must be 1 to 40 characters".into(),
+            ));
+        }
+        if [dimension.width_mm, dimension.height_mm, dimension.depth_mm]
+            .iter()
+            .any(|value| !value.is_finite() || *value <= 0.0)
+        {
+            return Err(AppError::Validation(
+                "dimension width, height and depth must be positive".into(),
+            ));
         }
     }
 
@@ -778,6 +799,7 @@ async fn replace_children(
         "device_identifiers",
         "device_sources",
         "device_configurations",
+        "device_dimensions",
         "device_colors",
         "device_spec_values",
     ] {
@@ -829,6 +851,26 @@ async fn replace_children(
         .bind(config.storage_gb)
         .bind(config.ram_gb)
         .bind(position as i32)
+        .execute(&mut **transaction)
+        .await
+        .map_err(map_write_db_error)?;
+    }
+
+    for (position, dimension) in payload.dimensions.iter().enumerate() {
+        sqlx::query(
+            r#"
+            INSERT INTO device_dimensions
+                (device_id, position, label, width_mm, height_mm, depth_mm, note)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            "#,
+        )
+        .bind(device_id)
+        .bind(position as i32)
+        .bind(dimension.label.trim())
+        .bind(dimension.width_mm)
+        .bind(dimension.height_mm)
+        .bind(dimension.depth_mm)
+        .bind(dimension.note.as_deref().map(str::trim).filter(|note| !note.is_empty()))
         .execute(&mut **transaction)
         .await
         .map_err(map_write_db_error)?;
@@ -986,6 +1028,10 @@ async fn load_admin_detail(
         .await?
         .remove(&device_id)
         .unwrap_or_default();
+    let dimensions = group_dimensions(transaction, &ids)
+        .await?
+        .remove(&device_id)
+        .unwrap_or_default();
     let colors = group_colors(transaction, &ids)
         .await?
         .remove(&device_id)
@@ -1004,6 +1050,7 @@ async fn load_admin_detail(
         summary,
         variant: row.summary_variant_label,
         configurations,
+        dimensions,
         colors,
         source_url,
         sources: device_sources,
@@ -1102,16 +1149,13 @@ async fn load_details(
     let aliases = load_aliases(transaction, ids).await?;
     let mut configurations = group_configurations(transaction, ids).await?;
     let mut colors = group_colors(transaction, ids).await?;
+    let mut dimensions = group_dimensions(transaction, ids).await?;
     let mut sources = group_sources(transaction, ids).await?;
     let mut specs = group_specs(transaction, ids).await?;
     let mut details = Vec::with_capacity(ids.len());
 
     for id in ids {
         let row = rows_by_id.remove(id).ok_or(AppError::Internal)?;
-        let expected_keys = spec_keys_for_category(&row.category)
-            .iter()
-            .copied()
-            .collect::<HashSet<_>>();
         let device_sources = sources.remove(id).unwrap_or_default();
         let primary_sources = device_sources
             .iter()
@@ -1126,13 +1170,13 @@ async fn load_details(
             .map(|source| source.id)
             .collect::<HashSet<_>>();
         let spec_rows = specs.remove(id).unwrap_or_default();
-        if spec_rows.len() != expected_keys.len()
-            || spec_rows
+        if !spec_keys_are_valid(
+            &row.category,
+            &spec_rows
                 .iter()
                 .map(|spec| spec.spec_key.as_str())
-                .collect::<HashSet<_>>()
-                != expected_keys
-        {
+                .collect::<HashSet<_>>(),
+        ) {
             return Err(AppError::Internal);
         }
 
@@ -1170,6 +1214,7 @@ async fn load_details(
             summary,
             variant: row.summary_variant_label,
             configurations: configurations.remove(id).unwrap_or_default(),
+            dimensions: dimensions.remove(id).unwrap_or_default(),
             colors: colors.remove(id).unwrap_or_default(),
             source_url,
             sources: device_sources,
@@ -1197,6 +1242,32 @@ async fn load_aliases(
     .fetch_all(&mut **transaction)
     .await?;
     Ok(group_by_device(rows, |row| row.device_id))
+}
+
+async fn group_dimensions(
+    transaction: &mut Transaction<'_, Postgres>,
+    ids: &[Uuid],
+) -> ApiResult<HashMap<Uuid, Vec<DeviceDimension>>> {
+    let rows = sqlx::query_as::<_, DimensionRow>(
+        "SELECT device_id, label, width_mm, height_mm, depth_mm, note FROM device_dimensions WHERE device_id = ANY($1) ORDER BY device_id, position",
+    )
+    .bind(ids)
+    .fetch_all(&mut **transaction)
+    .await?;
+    let mut result = HashMap::<Uuid, Vec<DeviceDimension>>::new();
+    for row in rows {
+        result
+            .entry(row.device_id)
+            .or_default()
+            .push(DeviceDimension {
+                label: row.label,
+                width_mm: row.width_mm,
+                height_mm: row.height_mm,
+                depth_mm: row.depth_mm,
+                note: row.note,
+            });
+    }
+    Ok(result)
 }
 
 async fn group_configurations(

@@ -13,7 +13,8 @@ pub use camera::{
 };
 pub use catalog::{
     AliasDetail, AliasInput, CatalogBrand, CatalogSchemaResponse, ColorInput, ComparisonResponse,
-    ConfigurationInput, DeviceColor, DeviceConfiguration, DeviceDetail, DeviceListResponse,
+    ConfigurationInput, DeviceColor, DeviceConfiguration, DeviceDetail, DeviceDimension,
+    DeviceListResponse, DimensionInput,
     DeviceSource, DeviceSummary, DeviceWriteRequest, HomeResponse, Pagination, SourceInput,
     SpecInput, SpecValue, SpecificationRow, SpecificationSection,
 };

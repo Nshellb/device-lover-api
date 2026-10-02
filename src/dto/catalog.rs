@@ -60,6 +60,9 @@ pub struct DeviceDetail {
     pub summary: DeviceSummary,
     pub variant: Option<String>,
     pub configurations: Vec<DeviceConfiguration>,
+    /// Up to 3 entries (e.g. 펼친 상태 / 접은 상태), each with separate numeric
+    /// width/height/depth in millimetres so they can be searched individually.
+    pub dimensions: Vec<DeviceDimension>,
     pub colors: Vec<DeviceColor>,
     pub source_url: String,
     pub sources: Vec<DeviceSource>,
@@ -77,6 +80,26 @@ pub struct DeviceDetail {
 pub struct AliasDetail {
     pub value: String,
     pub kind: String,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceDimension {
+    pub label: String,
+    pub width_mm: f64,
+    pub height_mm: f64,
+    pub depth_mm: f64,
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DimensionInput {
+    pub label: String,
+    pub width_mm: f64,
+    pub height_mm: f64,
+    pub depth_mm: f64,
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -203,6 +226,7 @@ pub struct DeviceWriteRequest {
     pub aliases: Vec<AliasInput>,
     pub sources: Vec<SourceInput>,
     pub configurations: Vec<ConfigurationInput>,
+    pub dimensions: Vec<DimensionInput>,
     pub colors: Vec<ColorInput>,
     #[schema(value_type = Object)]
     pub specs: HashMap<String, SpecInput>,

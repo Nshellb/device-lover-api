@@ -169,40 +169,61 @@ pub fn expand_search_synonyms(value: &str) -> String {
     result
 }
 
-// Hangul initial-consonant (초성) shortcuts for foldables/flips. A single
-// substring can't cover both "fold" and "flip", so a query made only of these
-// jamo expands to several alternative keys instead of one.
-const SEARCH_INITIAL_ALTERNATIVES: [(&str, &[&str]); 3] = [
-    ("ㅍ", &["fold", "flip"]),
-    ("ㅍㄷ", &["fold"]),
-    ("ㅍㄹ", &["flip"]),
+// Words a user is likely to be partway through typing. A whole query that is a
+// leading part of one of these — as full jamo ("아", "아이ㅍ") or as initial
+// consonants only ("ㅇ", "ㅇㅇㅍ") — expands to the English key, so results
+// show up from the first keystroke instead of only once the word is complete.
+// One query can lead several words ("ㅍ" -> fold and flip), hence several keys.
+const SEARCH_TYPING_TARGETS: [(&str, &str); 4] = [
+    ("아이폰", "iphone"),
+    ("갤럭시", "galaxy"),
+    ("폴드", "fold"),
+    ("플립", "flip"),
 ];
+
+// Whether `typed` (NFD jamo) leads `word`, either as its full jamo sequence or
+// as its initial consonants (the leading-consonant block U+1100..=U+115F).
+fn is_leading_part_of(typed: &[char], word: &str) -> bool {
+    let jamo: Vec<char> = word.nfd().collect();
+    let initials: Vec<char> = jamo
+        .iter()
+        .copied()
+        .filter(|jamo| ('\u{1100}'..='\u{115F}').contains(jamo))
+        .collect();
+    jamo.starts_with(typed) || initials.starts_with(typed)
+}
 
 // Alternative search keys for a raw query; a device matches if any of them is
 // a substring of one of its identifiers. Empty means "no search filter".
 pub fn search_keys(value: &str) -> Vec<String> {
-    let key = normalize_search_term(value);
-    if key.is_empty() {
+    let typed = fold_search_text(value);
+    if typed.is_empty() {
         return Vec::new();
     }
-    for (initials, alternatives) in SEARCH_INITIAL_ALTERNATIVES {
-        if key == normalize_search_term(initials) {
-            return alternatives
-                .iter()
-                .map(|alternative| (*alternative).to_string())
-                .collect();
-        }
+    let typed_jamo: Vec<char> = typed.nfd().collect();
+    let keys: Vec<String> = SEARCH_TYPING_TARGETS
+        .iter()
+        .filter(|(word, _)| is_leading_part_of(&typed_jamo, word))
+        .map(|(_, english)| (*english).to_string())
+        .collect();
+    if keys.is_empty() {
+        vec![expand_search_synonyms(&typed)]
+    } else {
+        keys
     }
-    vec![key]
 }
 
-pub fn normalize_search_term(value: &str) -> String {
-    let normalized: String = value
+// NFKC + lowercase, keeping only what search keys are made of.
+fn fold_search_text(value: &str) -> String {
+    value
         .nfkc()
         .flat_map(char::to_lowercase)
         .filter(|character| character.is_alphanumeric() || matches!(character, ',' | '+'))
-        .collect();
-    expand_search_synonyms(&normalized)
+        .collect()
+}
+
+pub fn normalize_search_term(value: &str) -> String {
+    expand_search_synonyms(&fold_search_text(value))
 }
 
 pub fn specification_sections() -> Vec<SpecificationSection> {
@@ -340,12 +361,43 @@ mod tests {
     }
 
     #[test]
-    fn search_keys_expand_fold_flip_initials() {
+    fn search_keys_expand_partially_typed_fold_flip() {
+        // Both words share the leading ㅍ.
         assert_eq!(search_keys("ㅍ"), vec!["fold", "flip"]);
-        assert_eq!(search_keys(" ㅍㄷ "), vec!["fold"]);
-        assert_eq!(search_keys("ㅍㄹ"), vec!["flip"]);
-        assert_eq!(search_keys("폴드"), vec!["fold"]);
+        // Every state on the way to typing each word, as initials or as syllables.
+        for typed in ["ㅍㄷ", " ㅍㄷ ", "포", "폴", "폴ㄷ", "폴드"] {
+            assert_eq!(search_keys(typed), vec!["fold"], "typed {typed}");
+        }
+        for typed in ["ㅍㄹ", "프", "플", "플ㄹ", "플리", "플립"] {
+            assert_eq!(search_keys(typed), vec!["flip"], "typed {typed}");
+        }
+    }
+
+    #[test]
+    fn search_keys_expand_partially_typed_iphone() {
+        for typed in ["ㅇ", "아", "ㅇㅇ", "아이", "ㅇㅇㅍ", "아이ㅍ", "아이포", "아이폰"] {
+            assert_eq!(search_keys(typed), vec!["iphone"], "typed {typed}");
+        }
+        assert_eq!(search_keys("아이폰 16"), vec!["iphone16"]);
+        // Leading syllables shared with other words must not be taken for iPhone.
+        assert_eq!(search_keys("아이패드"), vec!["아이패드"]);
+    }
+
+    #[test]
+    fn search_keys_expand_partially_typed_galaxy() {
+        for typed in ["ㄱ", "갤", "ㄱㄹ", "갤ㄹ", "갤러", "ㄱㄹㅅ", "갤럭", "갤럭시"] {
+            assert_eq!(search_keys(typed), vec!["galaxy"], "typed {typed}");
+        }
+        assert_eq!(search_keys("갤럭시 Z 폴드7"), vec!["galaxyzfold7"]);
+        // A syllable that only shares the initial consonant is not a Galaxy.
+        assert_eq!(search_keys("가"), vec!["가"]);
+    }
+
+    #[test]
+    fn search_keys_pass_other_queries_through() {
         assert_eq!(search_keys("ㅍ7"), vec![normalize_search_term("ㅍ7")]);
+        assert_eq!(search_keys("갤럭시 S24"), vec!["galaxys24"]);
+        assert_eq!(search_keys("iPhone"), vec!["iphone"]);
         assert!(search_keys("  ").is_empty());
     }
 

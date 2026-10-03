@@ -33,6 +33,13 @@ use crate::state::AppState;
 const SEARCH_KEY_MATCH: &str = "di.search_key LIKE ANY(ARRAY(\
      SELECT '%' || q.term || '%' FROM unnest($2::text[]) AS q(term)))";
 
+// True when identifier row `di` spells the device's name (its slug, or the name
+// folded the same way search keys are) rather than an alias or model number, so a
+// query like "21" can rank Galaxy S21 above SM-S921N-style matches. The SQL fold only
+// keeps ASCII; a non-ASCII name still matches through its slug. Needs `pd` in scope.
+const NAME_IDENTIFIER: &str = "(di.route_key = pd.slug \
+     OR di.search_key = regexp_replace(lower(pd.name), '[^a-z0-9,+]', '', 'g'))";
+
 const PUBLIC_DEVICE_SELECT: &str = r#"
     SELECT dm.id, dm.slug, dm.category, b.name AS brand, b.slug AS brand_slug,
            dm.name, dm.release_date, dm.market_code, dm.summary_variant_label,
@@ -179,11 +186,16 @@ pub(crate) async fn list_devices(
            CASE WHEN cardinality($2::text[]) > 0 AND $6 = 'relevance' THEN (
                SELECT min(CASE
                    WHEN di.search_key = ANY($2::text[]) THEN 0
-                   WHEN EXISTS (
+                   WHEN {NAME_IDENTIFIER} AND EXISTS (
                        SELECT 1 FROM unnest($2::text[]) AS q(term)
                         WHERE di.search_key LIKE q.term || '%'
                    ) THEN 1
-                   ELSE 2
+                   WHEN {NAME_IDENTIFIER} THEN 2
+                   WHEN EXISTS (
+                       SELECT 1 FROM unnest($2::text[]) AS q(term)
+                        WHERE di.search_key LIKE q.term || '%'
+                   ) THEN 3
+                   ELSE 4
                END)
                  FROM device_identifiers di
                 WHERE di.device_id = pd.id AND {SEARCH_KEY_MATCH}

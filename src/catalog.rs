@@ -6,7 +6,7 @@ use crate::error::AppError;
 pub const SCHEMA_VERSION: u8 = 1;
 pub const MAX_COMPARISON_DEVICES: usize = 3;
 
-pub const SPEC_KEYS: [&str; 28] = [
+pub const SPEC_KEYS: [&str; 29] = [
     "weight",
     "storage",
     "stylus",
@@ -17,6 +17,7 @@ pub const SPEC_KEYS: [&str; 28] = [
     "displayPeakBrightness",
     "displayLamination",
     "displayAntiReflective",
+    "displayAlwaysOn",
     "displayColorGamut",
     "displayContrastRatio",
     "displaySupplier",
@@ -40,7 +41,7 @@ pub const SPEC_KEYS: [&str; 28] = [
 /// Foldables can carry up to two extra displays besides the main one. Each
 /// sub display is all-or-none (every key of its group) and sub display 2
 /// requires sub display 1.
-pub const SUB_DISPLAY_KEY_GROUPS: [[&str; 11]; 2] = [
+pub const SUB_DISPLAY_KEY_GROUPS: [[&str; 12]; 2] = [
     [
         "sub1DisplayPanel",
         "sub1DisplaySize",
@@ -49,6 +50,7 @@ pub const SUB_DISPLAY_KEY_GROUPS: [[&str; 11]; 2] = [
         "sub1PeakBrightness",
         "sub1DisplayLamination",
         "sub1DisplayAntiReflective",
+        "sub1DisplayAlwaysOn",
         "sub1DisplayColorGamut",
         "sub1DisplayContrastRatio",
         "sub1DisplaySupplier",
@@ -62,6 +64,7 @@ pub const SUB_DISPLAY_KEY_GROUPS: [[&str; 11]; 2] = [
         "sub2PeakBrightness",
         "sub2DisplayLamination",
         "sub2DisplayAntiReflective",
+        "sub2DisplayAlwaysOn",
         "sub2DisplayColorGamut",
         "sub2DisplayContrastRatio",
         "sub2DisplaySupplier",
@@ -255,7 +258,7 @@ pub fn specification_sections() -> Vec<SpecificationSection> {
                 ("displayPanel", "패널"),
                 ("displaySize", "화면 크기"),
                 ("displayResolution", "해상도"),
-                ("refreshRate", "재생률"),
+                ("refreshRate", "주사율"),
                 ("displayFeatures", "주요 기능"),
             ],
         ),

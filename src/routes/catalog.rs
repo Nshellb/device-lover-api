@@ -52,7 +52,7 @@ const PUBLIC_DEVICE_SELECT: &str = r#"
        AND dm.release_date IS NOT NULL
        AND dm.release_date <= $1
        AND (SELECT count(*) FROM device_spec_values sv
-             WHERE sv.device_id = dm.id AND sv.spec_key NOT LIKE 'sub%') = 28
+             WHERE sv.device_id = dm.id AND sv.spec_key NOT LIKE 'sub%') = 29
        AND EXISTS (
            SELECT 1 FROM device_sources ds
             WHERE ds.device_id = dm.id AND ds.is_primary AND ds.checked_at IS NOT NULL

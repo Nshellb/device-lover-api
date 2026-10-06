@@ -83,7 +83,7 @@ paths:
                       - key: displayResolution
                         label: 해상도
                       - key: refreshRate
-                        label: 재생률
+                        label: 주사율
                       - key: displayFeatures
                         label: 주요 기능
                   - key: performance

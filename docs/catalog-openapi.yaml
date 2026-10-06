@@ -51,7 +51,7 @@ paths:
                     description: 핵심 하드웨어와 기본 사양
                     rows:
                       - key: processor
-                        label: 프로세서 (AP)
+                        label: 프로세서
                       - key: memory
                         label: 메모리
                       - key: displaySize

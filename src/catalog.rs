@@ -233,7 +233,7 @@ pub fn specification_sections() -> Vec<SpecificationSection> {
             "기본 정보",
             "핵심 하드웨어와 기본 사양",
             &[
-                ("processor", "프로세서 (AP)"),
+                ("processor", "프로세서"),
                 ("memory", "메모리"),
                 ("rearCameras", "카메라"),
                 ("displaySize", "디스플레이 크기"),
@@ -375,7 +375,16 @@ mod tests {
 
     #[test]
     fn search_keys_expand_partially_typed_iphone() {
-        for typed in ["ㅇ", "아", "ㅇㅇ", "아이", "ㅇㅇㅍ", "아이ㅍ", "아이포", "아이폰"] {
+        for typed in [
+            "ㅇ",
+            "아",
+            "ㅇㅇ",
+            "아이",
+            "ㅇㅇㅍ",
+            "아이ㅍ",
+            "아이포",
+            "아이폰",
+        ] {
             assert_eq!(search_keys(typed), vec!["iphone"], "typed {typed}");
         }
         assert_eq!(search_keys("아이폰 16"), vec!["iphone16"]);
@@ -385,7 +394,16 @@ mod tests {
 
     #[test]
     fn search_keys_expand_partially_typed_galaxy() {
-        for typed in ["ㄱ", "갤", "ㄱㄹ", "갤ㄹ", "갤러", "ㄱㄹㅅ", "갤럭", "갤럭시"] {
+        for typed in [
+            "ㄱ",
+            "갤",
+            "ㄱㄹ",
+            "갤ㄹ",
+            "갤러",
+            "ㄱㄹㅅ",
+            "갤럭",
+            "갤럭시",
+        ] {
             assert_eq!(search_keys(typed), vec!["galaxy"], "typed {typed}");
         }
         assert_eq!(search_keys("갤럭시 Z 폴드7"), vec!["galaxyzfold7"]);

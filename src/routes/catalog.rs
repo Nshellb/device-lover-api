@@ -15,14 +15,15 @@ use crate::catalog::{
     specification_sections,
 };
 use crate::dto::{
-    AliasDetail, AliasInput, CatalogBrand, CatalogSchemaResponse, ComparisonResponse,
-    DeviceColor, DeviceConfiguration, DeviceDetail, DeviceDimension, DeviceListResponse, DeviceMaterial, DevicePower, DeviceSoftware, DeviceSource,
-    DeviceSummary, DeviceWriteRequest, HomeResponse, Pagination, SourceInput, SpecValue,
+    AliasDetail, AliasInput, CatalogBrand, CatalogSchemaResponse, ComparisonResponse, DeviceColor,
+    DeviceConfiguration, DeviceDetail, DeviceDimension, DeviceListResponse, DeviceMaterial,
+    DevicePower, DeviceSoftware, DeviceSource, DeviceSummary, DeviceWriteRequest, HomeResponse,
+    Pagination, SourceInput, SpecValue,
 };
 use crate::error::{ApiResult, AppError};
 use crate::models::{
-    AliasRow, ColorRow, ConfigurationRow, DeviceRow, DeviceSoftwareRow, DimensionRow, MaterialRow, PowerRow, SourceRow,
-    SpecRow,
+    AliasRow, ColorRow, ConfigurationRow, DeviceRow, DeviceSoftwareRow, DimensionRow, MaterialRow,
+    PowerRow, SourceRow, SpecRow,
 };
 use crate::state::AppState;
 
@@ -540,7 +541,13 @@ pub(crate) async fn create_device(
     .bind(&payload.launch_video_url)
     .bind(&payload.publication_status)
     .bind(verified_at)
-    .bind(payload.image_alt.as_deref().map(str::trim).filter(|alt| !alt.is_empty()))
+    .bind(
+        payload
+            .image_alt
+            .as_deref()
+            .map(str::trim)
+            .filter(|alt| !alt.is_empty()),
+    )
     .fetch_one(&mut *transaction)
     .await
     .map_err(map_write_db_error)?;
@@ -658,7 +665,13 @@ pub(crate) async fn update_device(
     .bind(&payload.launch_video_url)
     .bind(&payload.publication_status)
     .bind(verified_at)
-    .bind(payload.image_alt.as_deref().map(str::trim).filter(|alt| !alt.is_empty()))
+    .bind(
+        payload
+            .image_alt
+            .as_deref()
+            .map(str::trim)
+            .filter(|alt| !alt.is_empty()),
+    )
     .execute(&mut *transaction)
     .await
     .map_err(map_write_db_error)?;
@@ -752,19 +765,35 @@ fn validate_write_request(payload: &DeviceWriteRequest, category: &str) -> ApiRe
     }
 
     if payload.software.len() > 40 {
-        return Err(AppError::Validation("software must have at most 40 entries".into()));
+        return Err(AppError::Validation(
+            "software must have at most 40 entries".into(),
+        ));
     }
     {
         let mut seen = HashSet::new();
-        if !payload.software.iter().all(|item| seen.insert(item.version_id)) {
-            return Err(AppError::Validation("software versions must be unique".into()));
+        if !payload
+            .software
+            .iter()
+            .all(|item| seen.insert(item.version_id))
+        {
+            return Err(AppError::Validation(
+                "software versions must be unique".into(),
+            ));
         }
     }
-    if payload.image_alt.as_deref().is_some_and(|alt| alt.trim().chars().count() > 200) {
-        return Err(AppError::Validation("imageAlt must be at most 200 characters".into()));
+    if payload
+        .image_alt
+        .as_deref()
+        .is_some_and(|alt| alt.trim().chars().count() > 200)
+    {
+        return Err(AppError::Validation(
+            "imageAlt must be at most 200 characters".into(),
+        ));
     }
     if payload.materials.len() > 20 {
-        return Err(AppError::Validation("materials must have at most 20 entries".into()));
+        return Err(AppError::Validation(
+            "materials must have at most 20 entries".into(),
+        ));
     }
     for material in &payload.materials {
         for (name, value) in [("part", &material.part), ("material", &material.material)] {
@@ -986,7 +1015,10 @@ async fn replace_children(
     }
 
     let clean = |note: &Option<String>| -> Option<String> {
-        note.as_deref().map(str::trim).filter(|note| !note.is_empty()).map(str::to_string)
+        note.as_deref()
+            .map(str::trim)
+            .filter(|note| !note.is_empty())
+            .map(str::to_string)
     };
     sqlx::query(
         r#"
@@ -1007,6 +1039,10 @@ async fn replace_children(
     .map_err(map_write_db_error)?;
 
     for (position, dimension) in payload.dimensions.iter().enumerate() {
+        // Stored upright: 세로 (longest) ≥ 가로 ≥ 두께 (thinnest), whatever order was entered.
+        let mut sizes = [dimension.width_mm, dimension.height_mm, dimension.depth_mm];
+        sizes.sort_by(|a, b| b.total_cmp(a));
+        let [height_mm, width_mm, depth_mm] = sizes;
         sqlx::query(
             r#"
             INSERT INTO device_dimensions
@@ -1017,10 +1053,16 @@ async fn replace_children(
         .bind(device_id)
         .bind(position as i32)
         .bind(dimension.label.trim())
-        .bind(dimension.width_mm)
-        .bind(dimension.height_mm)
-        .bind(dimension.depth_mm)
-        .bind(dimension.note.as_deref().map(str::trim).filter(|note| !note.is_empty()))
+        .bind(width_mm)
+        .bind(height_mm)
+        .bind(depth_mm)
+        .bind(
+            dimension
+                .note
+                .as_deref()
+                .map(str::trim)
+                .filter(|note| !note.is_empty()),
+        )
         .execute(&mut **transaction)
         .await
         .map_err(map_write_db_error)?;
@@ -1359,7 +1401,7 @@ async fn load_details(
             response_specs.insert(
                 spec.spec_key,
                 SpecValue {
-                        value: spec.display_value,
+                    value: spec.display_value,
                     detail: spec.detail,
                     source_id: spec.source_id,
                 },
@@ -1432,14 +1474,17 @@ async fn group_software(
     .await?;
     let mut result = HashMap::<Uuid, Vec<DeviceSoftware>>::new();
     for row in rows {
-        result.entry(row.device_id).or_default().push(DeviceSoftware {
-            version_id: row.version_id,
-            category: row.category,
-            value: row.value,
-            label: row.label,
-            is_launch: row.is_launch,
-            note: row.note,
-        });
+        result
+            .entry(row.device_id)
+            .or_default()
+            .push(DeviceSoftware {
+                version_id: row.version_id,
+                category: row.category,
+                value: row.value,
+                label: row.label,
+                is_launch: row.is_launch,
+                note: row.note,
+            });
     }
     Ok(result)
 }
@@ -1456,11 +1501,14 @@ async fn group_materials(
     .await?;
     let mut result = HashMap::<Uuid, Vec<DeviceMaterial>>::new();
     for row in rows {
-        result.entry(row.device_id).or_default().push(DeviceMaterial {
-            part: row.part,
-            material: row.material,
-            note: row.note,
-        });
+        result
+            .entry(row.device_id)
+            .or_default()
+            .push(DeviceMaterial {
+                part: row.part,
+                material: row.material,
+                note: row.note,
+            });
     }
     Ok(result)
 }

@@ -9,8 +9,8 @@ pub mod catalog;
 pub mod health;
 pub mod popularity;
 pub mod route_misses;
-pub mod users;
 pub mod software_versions;
+pub mod users;
 pub mod wireless_technologies;
 
 pub fn router() -> Router<AppState> {

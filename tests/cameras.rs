@@ -118,9 +118,7 @@ async fn admin_camera_list_stays_read_only_and_camera_writes_are_scoped_to_by_id
     // /api/v1/cameras allows GET (list) and POST (create) but not PUT/PATCH/DELETE.
     for method in [Method::PUT, Method::PATCH, Method::DELETE] {
         assert_eq!(
-            send(&app, method.clone(), "/api/v1/cameras")
-                .await
-                .status(),
+            send(&app, method.clone(), "/api/v1/cameras").await.status(),
             StatusCode::METHOD_NOT_ALLOWED
         );
     }

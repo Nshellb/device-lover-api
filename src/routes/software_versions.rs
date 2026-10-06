@@ -85,10 +85,7 @@ pub(crate) async fn create_software_version(
     .fetch_one(&state.db)
     .await
     .map_err(map_write_db_error)?;
-    Ok((
-        StatusCode::CREATED,
-        Json(AdminSoftwareVersion::from(row)),
-    ))
+    Ok((StatusCode::CREATED, Json(AdminSoftwareVersion::from(row))))
 }
 
 #[utoipa::path(
@@ -180,10 +177,7 @@ pub(crate) async fn delete_software_version(
 }
 
 fn validate_software_version_input(payload: &SoftwareVersionInput) -> ApiResult<()> {
-    if !matches!(
-        payload.category.as_str(),
-        "os" | "ux"
-    ) {
+    if !matches!(payload.category.as_str(), "os" | "ux") {
         return Err(AppError::Validation(
             "invalid software version category".into(),
         ));

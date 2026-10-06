@@ -4,8 +4,8 @@ mod camera;
 mod catalog;
 mod popularity;
 mod route_miss;
-mod user;
 mod software_version;
+mod user;
 mod wireless_technology;
 
 pub use auth::{LoginRequest, TokenResponse};
@@ -16,13 +16,12 @@ pub use camera::{
 pub use catalog::{
     AliasDetail, AliasInput, CatalogBrand, CatalogSchemaResponse, ColorInput, ComparisonResponse,
     ConfigurationInput, DeviceColor, DeviceConfiguration, DeviceDetail, DeviceDimension,
-    DeviceListResponse, DeviceMaterial, DevicePower, DeviceSoftware, DimensionInput, MaterialInput, PowerInput,
-    SoftwareInput,
-    DeviceSource, DeviceSummary, DeviceWriteRequest, HomeResponse, Pagination, SourceInput,
-    SpecInput, SpecValue, SpecificationRow, SpecificationSection,
+    DeviceListResponse, DeviceMaterial, DevicePower, DeviceSoftware, DeviceSource, DeviceSummary,
+    DeviceWriteRequest, DimensionInput, HomeResponse, MaterialInput, Pagination, PowerInput,
+    SoftwareInput, SourceInput, SpecInput, SpecValue, SpecificationRow, SpecificationSection,
 };
 pub use popularity::{DeviceSelectionRequest, PopularDeviceSummary, PopularDevicesResponse};
 pub use route_miss::{RouteMissCreateRequest, RouteMissSummary, RouteMissSummaryResponse};
-pub use user::{CreateUserRequest, UpdateUserRequest, UserResponse};
 pub use software_version::{AdminSoftwareVersion, SoftwareVersionInput};
+pub use user::{CreateUserRequest, UpdateUserRequest, UserResponse};
 pub use wireless_technology::{AdminWirelessTechnology, WirelessTechnologyInput};

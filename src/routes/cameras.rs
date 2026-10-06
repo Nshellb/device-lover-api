@@ -418,7 +418,10 @@ fn validate_camera_write_request(payload: &CameraWriteRequest) -> ApiResult<()> 
             "releaseMonth must match YYYY-MM".into(),
         ));
     }
-    if !matches!(payload.camera_type.as_str(), "DSLR" | "mirrorless" | "compact") {
+    if !matches!(
+        payload.camera_type.as_str(),
+        "DSLR" | "mirrorless" | "compact"
+    ) {
         return Err(AppError::Validation(
             "cameraType must be DSLR, mirrorless, or compact".into(),
         ));
